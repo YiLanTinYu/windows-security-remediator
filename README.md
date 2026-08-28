@@ -97,3 +97,12 @@ cmake --build build --config Release
 - 防火墙规则只阻断入站，不影响普通客户端出站访问。
 - 域策略或其他安全软件可能覆盖本地配置，最终应以复检和远程端口测试为准。
 - `rule-signer.exe` 当前仅为后续外置规则扩展预留工具，第一版只使用程序内置规则。
+
+## 许可证
+
+Copyright 2026 倚栏听雨。
+
+本项目采用 **Apache License 2.0 + Commons Clause License Condition v1.0**。
+你可以查看、使用、修改和再分发本项目，但不得以 Commons Clause 所定义的
+“Sell”方式销售本软件。该组合属于源代码可用（source-available）许可，
+不属于 OSI 定义的开源许可证。完整条款请参阅 [LICENSE](LICENSE)。
