@@ -1,0 +1,28 @@
+#pragma code_page(65001)
+#include <windows.h>
+
+1 ICON "remediator.ico"
+
+1 VERSIONINFO
+ FILEVERSION 1,1,0,0
+ PRODUCTVERSION 1,1,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+BEGIN
+  BLOCK "StringFileInfo" BEGIN
+    BLOCK "080404b0" BEGIN
+      VALUE "CompanyName", "倚栏听雨\0"
+      VALUE "FileDescription", "Windows 高危端口静默修复程序\0"
+      VALUE "FileVersion", "1.1.0.0\0"
+      VALUE "InternalName", "SecurityRemediator\0"
+      VALUE "LegalCopyright", "Copyright (C) 2026 倚栏听雨\0"
+      VALUE "OriginalFilename", "remediator.exe\0"
+      VALUE "ProductName", "Security Remediator\0"
+      VALUE "ProductVersion", "1.1.0.0\0"
+    END
+  END
+  BLOCK "VarFileInfo" BEGIN
+    VALUE "Translation", 0x0804, 1200
+  END
+END

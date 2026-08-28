@@ -1,0 +1,14 @@
+cmake_minimum_required(VERSION 3.20)
+project(SecurityRemediator LANGUAGES CXX)
+
+add_executable(remediator WIN32 src/main.cpp src/remediator.rc)
+target_compile_features(remediator PRIVATE cxx_std_17)
+target_compile_definitions(remediator PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0601)
+target_compile_options(remediator PRIVATE /W4 /permissive- /utf-8 /MT)
+target_link_libraries(remediator PRIVATE ole32 oleaut32 advapi32 shell32 crypt32 iphlpapi)
+
+add_executable(rule-signer tools/rule_signer.cpp)
+target_compile_features(rule-signer PRIVATE cxx_std_17)
+target_compile_definitions(rule-signer PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0601)
+target_compile_options(rule-signer PRIVATE /W4 /permissive- /utf-8 /MT)
+target_link_libraries(rule-signer PRIVATE advapi32 crypt32)

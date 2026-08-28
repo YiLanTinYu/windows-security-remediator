@@ -1,0 +1,26 @@
+# CMake and Visual Studio build output
+/build/
+/build-*/
+/.vs/
+/out/
+
+# Test and runtime output
+/testlogs/
+/testlogs*/
+*.log
+last-result.json
+result.txt
+backup.state
+
+# Stale local delivery archives
+/dist/*.zip
+
+# Local IDE files
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# OS metadata
+Thumbs.db
+Desktop.ini
