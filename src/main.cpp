@@ -33,7 +33,7 @@ std::wstring Err(DWORD e=GetLastError()) { wchar_t b[32]; _snwprintf_s(b,_counto
 std::wstring Join(const std::wstring&a,const std::wstring&b);
 void Log(const std::wstring& s) { if(logFile.is_open()) { if(s==L"completed") { logFile << L"结果：执行成功，系统配置已按规则处理。\n"; std::wofstream r(Join(logDir,L"result.txt"),std::ios::trunc); r<<L"执行成功\n退出码："<<finalExitCode<<L"\n模式："<<finalMode<<L"\n修改内容："<<(changed?L"有":L"无")<<L"\n"; } else if(s==L"incomplete") { logFile << L"结果：执行未完成，请查看退出码和失败项。\n"; std::wofstream r(Join(logDir,L"result.txt"),std::ios::trunc); r<<L"执行未完成\n退出码："<<finalExitCode<<L"\n模式："<<finalMode<<L"\n请检查权限和日志中的失败项。\n"; } else logFile << s << L"\n"; } }
 void (*const WriteLogFn)(const std::wstring&)=Log;
-void DispatchLog(const std::wstring& s){if(s==L"completed")finalExitCode=0;else if(s==L"incomplete")finalExitCode=1;if(s==L"SecurityRemediator started")WriteLogFn(L"SecurityRemediator version 1.1.0, author: YiLanTingYu, started");else WriteLogFn(s);}
+void DispatchLog(const std::wstring& s){if(s==L"completed")finalExitCode=0;else if(s==L"incomplete")finalExitCode=1;if(s==L"SecurityRemediator started")WriteLogFn(L"SecurityRemediator version 1.2.0, author: YiLanTingYu, started");else WriteLogFn(s);}
 #define Log(s) DispatchLog(s)
 std::wstring Join(const std::wstring&a,const std::wstring&b){return a+(a.empty()||a.back()==L'\\'?L"":L"\\")+b;}
 std::wstring ExeDir(){wchar_t b[MAX_PATH]{};DWORD n=GetModuleFileNameW(nullptr,b,_countof(b));std::wstring p(b,n);size_t i=p.find_last_of(L"\\/");return i==std::wstring::npos?L".":p.substr(0,i);}
@@ -51,10 +51,55 @@ bool GetSvc(const wchar_t* name,SvcState& s){s.name=name; SC_HANDLE scm=OpenSCMa
 bool SetSvc(const wchar_t* name,DWORD start,bool run){SC_HANDLE scm=OpenSCManagerW(nullptr,nullptr,SC_MANAGER_CONNECT);if(!scm)return false;SC_HANDLE h=OpenServiceW(scm,name,SERVICE_CHANGE_CONFIG|SERVICE_START|SERVICE_STOP|SERVICE_QUERY_STATUS);if(!h){CloseServiceHandle(scm);return false;}bool ok=ChangeServiceConfigW(h,SERVICE_NO_CHANGE,start,SERVICE_NO_CHANGE,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr,nullptr)!=FALSE;SERVICE_STATUS st{};if(run){if(QueryServiceStatus(h,&st)&&st.dwCurrentState!=SERVICE_RUNNING)ok=StartServiceW(h,0,nullptr)||GetLastError()==ERROR_SERVICE_ALREADY_RUNNING;}else if(QueryServiceStatus(h,&st)&&st.dwCurrentState==SERVICE_RUNNING)ok=ControlService(h,SERVICE_CONTROL_STOP,&st)!=FALSE||GetLastError()==ERROR_SERVICE_NOT_ACTIVE;CloseServiceHandle(h);CloseServiceHandle(scm);return ok;}
 
 struct ComInit { HRESULT hr; ComInit():hr(CoInitializeEx(nullptr,COINIT_MULTITHREADED)){} ~ComInit(){if(SUCCEEDED(hr))CoUninitialize();} };
-bool Firewall(bool apply){ ComInit ci; if(FAILED(ci.hr)&&ci.hr!=RPC_E_CHANGED_MODE)return false; INetFwPolicy2*p=nullptr; HRESULT hr=CoCreateInstance(__uuidof(NetFwPolicy2),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),(void**)&p); if(FAILED(hr))return false; NET_FW_PROFILE_TYPE2 profiles=(NET_FW_PROFILE_TYPE2)(NET_FW_PROFILE2_DOMAIN|NET_FW_PROFILE2_PRIVATE|NET_FW_PROFILE2_PUBLIC); bool ok=true; if(!apply){p->Release();return true;} VARIANT_BOOL en=VARIANT_TRUE; for(NET_FW_PROFILE_TYPE2 bit: {(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_DOMAIN,(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_PRIVATE,(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_PUBLIC}) if(FAILED(p->put_FirewallEnabled(bit,en)))ok=false;
-  const struct {int port; long proto; const wchar_t* tag;} rules[]={{22,NET_FW_IP_PROTOCOL_TCP,L"TCP-22"},{135,NET_FW_IP_PROTOCOL_TCP,L"TCP-135"},{136,NET_FW_IP_PROTOCOL_TCP,L"TCP-136"},{136,NET_FW_IP_PROTOCOL_UDP,L"UDP-136"},{137,NET_FW_IP_PROTOCOL_UDP,L"UDP-137"},{138,NET_FW_IP_PROTOCOL_UDP,L"UDP-138"},{139,NET_FW_IP_PROTOCOL_TCP,L"TCP-139"},{445,NET_FW_IP_PROTOCOL_TCP,L"TCP-445"},{3389,NET_FW_IP_PROTOCOL_TCP,L"TCP-3389"},{3389,NET_FW_IP_PROTOCOL_UDP,L"UDP-3389"}};
-  INetFwRules*rs=nullptr; if(SUCCEEDED(p->get_Rules(&rs))){for(auto&r:rules){std::wstring name=kRulePrefix;name+=r.tag; INetFwRule*x=nullptr; if(SUCCEEDED(CoCreateInstance(__uuidof(NetFwRule),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwRule),(void**)&x))){BSTR bn=SysAllocString(name.c_str()), ports=SysAllocString(std::to_wstring(r.port).c_str());x->put_Name(bn);x->put_Description(SysAllocString(L"Inbound hardening rule; managed by SecurityRemediator."));x->put_Protocol(r.proto);x->put_LocalPorts(ports);x->put_Direction(NET_FW_RULE_DIR_IN);x->put_Action(NET_FW_ACTION_BLOCK);x->put_Enabled(VARIANT_TRUE);x->put_Profiles(profiles);HRESULT a=rs->Add(x);if(FAILED(a)&&a!=HRESULT_FROM_WIN32(ERROR_OBJECT_ALREADY_EXISTS))ok=false;SysFreeString(bn);SysFreeString(ports);x->Release();}}rs->Release();}p->Release();return ok; }
-bool RemoveRules(){ComInit ci;INetFwPolicy2*p=nullptr;if(FAILED(CoCreateInstance(__uuidof(NetFwPolicy2),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),(void**)&p)))return false;INetFwRules*rs=nullptr;bool ok=SUCCEEDED(p->get_Rules(&rs));if(ok){const wchar_t*n[]={L"TCP-22",L"TCP-135",L"TCP-136",L"UDP-136",L"UDP-137",L"UDP-138",L"TCP-139",L"TCP-445",L"TCP-3389",L"UDP-3389"};for(auto x:n){std::wstring z=kRulePrefix;z+=x;BSTR b=SysAllocString(z.c_str());HRESULT h=rs->Remove(b);if(FAILED(h)&&h!=HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))ok=false;SysFreeString(b);}rs->Release();}p->Release();return ok;}
+struct FirewallRuleSpec { int port; long protocol; const wchar_t* tag; };
+const FirewallRuleSpec kFirewallRules[]={{22,NET_FW_IP_PROTOCOL_TCP,L"TCP-22"},{135,NET_FW_IP_PROTOCOL_TCP,L"TCP-135"},{136,NET_FW_IP_PROTOCOL_TCP,L"TCP-136"},{136,NET_FW_IP_PROTOCOL_UDP,L"UDP-136"},{137,NET_FW_IP_PROTOCOL_UDP,L"UDP-137"},{138,NET_FW_IP_PROTOCOL_UDP,L"UDP-138"},{139,NET_FW_IP_PROTOCOL_TCP,L"TCP-139"},{445,NET_FW_IP_PROTOCOL_TCP,L"TCP-445"},{3389,NET_FW_IP_PROTOCOL_TCP,L"TCP-3389"},{3389,NET_FW_IP_PROTOCOL_UDP,L"UDP-3389"}};
+
+bool FindNamedRules(INetFwRules* rules,const std::wstring& name,DWORD& count,INetFwRule** first){
+  count=0; if(first)*first=nullptr; IUnknown* unknown=nullptr;
+  if(FAILED(rules->get__NewEnum(&unknown))||!unknown)return false;
+  IEnumVARIANT* enumerator=nullptr; HRESULT hr=unknown->QueryInterface(IID_IEnumVARIANT,reinterpret_cast<void**>(&enumerator)); unknown->Release();
+  if(FAILED(hr)||!enumerator)return false;
+  VARIANT item; VariantInit(&item); ULONG fetched=0; bool ok=true;
+  while((hr=enumerator->Next(1,&item,&fetched))==S_OK){
+    if(item.vt==VT_DISPATCH&&item.pdispVal){
+      INetFwRule* rule=nullptr;
+      if(SUCCEEDED(item.pdispVal->QueryInterface(__uuidof(INetFwRule),reinterpret_cast<void**>(&rule)))&&rule){
+        BSTR ruleName=nullptr;
+        if(SUCCEEDED(rule->get_Name(&ruleName))&&ruleName&&name==ruleName){++count;if(first&&!*first)*first=rule;else rule->Release();}
+        else rule->Release();
+        SysFreeString(ruleName);
+      }
+    }
+    VariantClear(&item); VariantInit(&item);
+  }
+  if(hr!=S_FALSE)ok=false; VariantClear(&item); enumerator->Release(); return ok;
+}
+bool RuleMatches(INetFwRule* rule,const FirewallRuleSpec& spec,long profiles){
+  long protocol=0,actualProfiles=0; NET_FW_RULE_DIRECTION direction=NET_FW_RULE_DIR_MAX; NET_FW_ACTION action=NET_FW_ACTION_MAX; VARIANT_BOOL enabled=VARIANT_FALSE; BSTR ports=nullptr;
+  bool ok=SUCCEEDED(rule->get_Protocol(&protocol))&&SUCCEEDED(rule->get_LocalPorts(&ports))&&SUCCEEDED(rule->get_Direction(&direction))&&SUCCEEDED(rule->get_Action(&action))&&SUCCEEDED(rule->get_Enabled(&enabled))&&SUCCEEDED(rule->get_Profiles(&actualProfiles));
+  std::wstring expected=std::to_wstring(spec.port); ok=ok&&ports&&expected==ports&&protocol==spec.protocol&&direction==NET_FW_RULE_DIR_IN&&action==NET_FW_ACTION_BLOCK&&enabled==VARIANT_TRUE&&actualProfiles==profiles; SysFreeString(ports); return ok;
+}
+bool ConfigureRule(INetFwRule* rule,const std::wstring& name,const FirewallRuleSpec& spec,long profiles){
+  BSTR ruleName=SysAllocString(name.c_str()),description=SysAllocString(L"Inbound hardening rule; managed by SecurityRemediator."),ports=SysAllocString(std::to_wstring(spec.port).c_str());
+  if(!ruleName||!description||!ports){SysFreeString(ruleName);SysFreeString(description);SysFreeString(ports);return false;}
+  bool ok=true; if(FAILED(rule->put_Name(ruleName)))ok=false; if(FAILED(rule->put_Description(description)))ok=false; if(FAILED(rule->put_Protocol(spec.protocol)))ok=false; if(FAILED(rule->put_LocalPorts(ports)))ok=false; if(FAILED(rule->put_Direction(NET_FW_RULE_DIR_IN)))ok=false; if(FAILED(rule->put_Action(NET_FW_ACTION_BLOCK)))ok=false; if(FAILED(rule->put_Enabled(VARIANT_TRUE)))ok=false; if(FAILED(rule->put_Profiles(profiles)))ok=false;
+  SysFreeString(ruleName);SysFreeString(description);SysFreeString(ports);return ok;
+}
+bool RemoveAllNamedRules(INetFwRules* rules,const std::wstring& name){
+  DWORD count=0; if(!FindNamedRules(rules,name,count,nullptr))return false;
+  while(count>0){BSTR ruleName=SysAllocString(name.c_str());if(!ruleName)return false;HRESULT hr=rules->Remove(ruleName);SysFreeString(ruleName);if(FAILED(hr))return false;DWORD remaining=0;if(!FindNamedRules(rules,name,remaining,nullptr)||remaining>=count)return false;count=remaining;}
+  return true;
+}
+bool EnsureRule(INetFwRules* rules,const FirewallRuleSpec& spec,long profiles){
+  std::wstring name=kRulePrefix;name+=spec.tag; DWORD count=0;INetFwRule* existing=nullptr;if(!FindNamedRules(rules,name,count,&existing))return false;
+  if(count==1&&existing){bool ok=RuleMatches(existing,spec,profiles)||(ConfigureRule(existing,name,spec,profiles)&&RuleMatches(existing,spec,profiles));existing->Release();return ok;}
+  if(existing)existing->Release(); if(count>1){Log(L"清理重复防火墙规则: "+name+L"，原数量="+std::to_wstring(count));if(!RemoveAllNamedRules(rules,name))return false;}
+  INetFwRule* rule=nullptr;if(FAILED(CoCreateInstance(__uuidof(NetFwRule),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwRule),reinterpret_cast<void**>(&rule)))||!rule)return false;
+  bool ok=ConfigureRule(rule,name,spec,profiles)&&SUCCEEDED(rules->Add(rule));rule->Release();if(!ok)return false;DWORD finalCount=0;return FindNamedRules(rules,name,finalCount,nullptr)&&finalCount==1;
+}
+bool Firewall(bool apply){ ComInit ci; if(FAILED(ci.hr)&&ci.hr!=RPC_E_CHANGED_MODE)return false; INetFwPolicy2*p=nullptr; HRESULT hr=CoCreateInstance(__uuidof(NetFwPolicy2),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),(void**)&p); if(FAILED(hr))return false; long profiles=NET_FW_PROFILE2_DOMAIN|NET_FW_PROFILE2_PRIVATE|NET_FW_PROFILE2_PUBLIC; bool ok=true; if(!apply){p->Release();return true;} VARIANT_BOOL en=VARIANT_TRUE; for(NET_FW_PROFILE_TYPE2 bit: {(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_DOMAIN,(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_PRIVATE,(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_PUBLIC}) if(FAILED(p->put_FirewallEnabled(bit,en)))ok=false;
+  INetFwRules*rs=nullptr;if(SUCCEEDED(p->get_Rules(&rs))&&rs){for(const auto& rule:kFirewallRules)if(!EnsureRule(rs,rule,profiles))ok=false;rs->Release();}else ok=false;p->Release();return ok; }
+bool RemoveRules(){ComInit ci;INetFwPolicy2*p=nullptr;if(FAILED(CoCreateInstance(__uuidof(NetFwPolicy2),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),(void**)&p)))return false;INetFwRules*rs=nullptr;bool ok=SUCCEEDED(p->get_Rules(&rs))&&rs;if(ok){for(const auto& rule:kFirewallRules){std::wstring name=kRulePrefix;name+=rule.tag;if(!RemoveAllNamedRules(rs,name))ok=false;}rs->Release();}p->Release();return ok;}
 
 std::wstring StateFile(){wchar_t p[MAX_PATH];SHGetFolderPathW(nullptr,CSIDL_COMMON_APPDATA,nullptr,SHGFP_TYPE_CURRENT,p);std::wstring d=Join(p,kProduct);CreateDirectoryW(d.c_str(),nullptr);return Join(d,L"backup.state");}
 void SaveState(){backupPath=StateFile();std::wofstream f(backupPath,std::ios::trunc);SvcState a,b;GetSvc(L"LanmanServer",a);GetSvc(L"TermService",b);DWORD r=0;bool re=false;RegDword(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Control\\Terminal Server",L"fDenyTSConnections",r,re);f<<L"SVC|LanmanServer|"<<a.start<<L"|"<<a.running<<L"\nSVC|TermService|"<<b.start<<L"|"<<b.running<<L"\nRDP|"<<re<<L"|"<<r<<L"\n";HKEY h=nullptr; if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,L"SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters\\Interfaces",0,KEY_READ,&h)==ERROR_SUCCESS){DWORD i=0;wchar_t n[256];DWORD ns=_countof(n);while(RegEnumKeyExW(h,i++,n,&ns,nullptr,nullptr,nullptr,nullptr)==ERROR_SUCCESS){std::wstring sub=L"SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters\\Interfaces\\"+std::wstring(n);DWORD v=0;bool ex=false;RegDword(HKEY_LOCAL_MACHINE,sub,L"NetbiosOptions",v,ex);f<<L"NBT|"<<n<<L"|"<<ex<<L"|"<<v<<L"\n";ns=_countof(n);}RegCloseKey(h);}}

@@ -3,7 +3,7 @@
 ## 1. 项目概况
 
 - 项目名称：高危端口阻断工具（Security Remediator）
-- 当前版本：1.1.0.0
+- 当前版本：1.2.0.0
 - 作者：倚栏听雨
 - 项目目录：`C:\运维小工具\高危端口阻断`
 - 交付目录：`C:\运维小工具\高危端口阻断\dist`
@@ -27,6 +27,7 @@
 10. 日志默认保存在程序同目录，仅保留一份运行结果和一份验证结果。
 11. 提供中文结果，便于非专业人员判断是否成功。
 12. 程序带有自定义图标、版本信息和作者信息。
+13. 验证脚本只读采集网络配置与 USB 存储设备注册表记录，并直接写入离线 `verification-report.html`。
 
 ## 3. 现有功能
 
@@ -34,6 +35,7 @@
 
 - 启用 Windows 防火墙的域、专用、公用配置文件。
 - 创建 `SecurityRemediator` 命名的入站阻断规则。
+- 防火墙规则按精确名称保持幂等：缺失则创建、单条错误则修正、多条重复则清理后重建一条。
 - 停止并禁用 `LanmanServer`。
 - 停止并禁用 `TermService`。
 - 设置 `fDenyTSConnections=1`，拒绝远程桌面连接。
@@ -64,7 +66,7 @@ remediator.exe /apply /log-dir "D:\SecurityLogs"
 remediator.log       最近一次程序运行日志
 last-result.json     最近一次机器可读结果
 result.txt           最近一次中文摘要
-verification.log     最近一次验证结果
+verification-report.html  最近一次离线 HTML 验证报告
 ```
 
 每次运行会覆盖相应的旧日志，避免长期积累大量文件。
@@ -91,6 +93,7 @@ remediator.exe
 verify-remediator.bat
 verify-remediator.ps1
 README.txt
+LICENSE
 app-icon.png
 remediator.ico
 ```
@@ -99,6 +102,7 @@ remediator.ico
 - `verify-remediator.bat`：适合新手使用的验证入口。
 - `verify-remediator.ps1`：验证逻辑，由批处理调用。
 - `README.txt`：终端用户使用说明。
+- `LICENSE`：Apache-2.0 + Commons Clause v1.0 完整许可条款。
 - `app-icon.png`、`remediator.ico`：程序图标源文件。
 
 `rule-signer.exe` 当前属于开发占位工具，不应推送到终端。
@@ -133,7 +137,10 @@ cmake --build "C:\Build\SecurityRemediator"
 - `LanmanServer` 已验证为 `STOPPED` 和 `DISABLED`。
 - `net share` 无法启动 Server 服务，返回系统错误 1058，符合禁用预期。
 - 已提供一键验证脚本，检查服务、RDP、NetBIOS、防火墙规则和本机监听状态。
-- 程序已加入图标、版本 1.1.0.0 和作者“倚栏听雨”。
+- 验证脚本生成单个离线 HTML 报告，汇总全部检查项，对比预期结果和实际结果，并逐项列出防火墙规则、NetBIOS 网卡、网络配置和 USB 存储设备记录。
+- 程序已加入图标、版本 1.2.0.0 和作者“倚栏听雨”。
+- 1.2.0.0 Release/Win32 构建通过；验证脚本将网络配置与 USBSTOR 中文列表写入 `verification-report.html`。
+- 非提升令牌读取 `NetworkList\Profiles` 可能返回拒绝访问；正式环境应使用 SYSTEM 或已提权管理员运行验证脚本。
 
 ### 6.2 正式部署前仍需完成
 
@@ -210,4 +217,3 @@ remediator.exe /rollback
 - 正式实现并验证外置签名规则机制。
 - 对回滚、域策略覆盖、损坏备份和部分失败场景做自动化测试。
 - 为每个正式版本保存源码标签、构建环境、EXE 哈希和验收记录。
-

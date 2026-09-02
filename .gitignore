@@ -8,6 +8,7 @@
 /testlogs/
 /testlogs*/
 *.log
+verification-report.html
 last-result.json
 result.txt
 backup.state
