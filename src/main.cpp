@@ -33,12 +33,32 @@ std::wstring Err(DWORD e=GetLastError()) { wchar_t b[32]; _snwprintf_s(b,_counto
 std::wstring Join(const std::wstring&a,const std::wstring&b);
 void Log(const std::wstring& s) { if(logFile.is_open()) { if(s==L"completed") { logFile << L"结果：执行成功，系统配置已按规则处理。\n"; std::wofstream r(Join(logDir,L"result.txt"),std::ios::trunc); r<<L"执行成功\n退出码："<<finalExitCode<<L"\n模式："<<finalMode<<L"\n修改内容："<<(changed?L"有":L"无")<<L"\n"; } else if(s==L"incomplete") { logFile << L"结果：执行未完成，请查看退出码和失败项。\n"; std::wofstream r(Join(logDir,L"result.txt"),std::ios::trunc); r<<L"执行未完成\n退出码："<<finalExitCode<<L"\n模式："<<finalMode<<L"\n请检查权限和日志中的失败项。\n"; } else logFile << s << L"\n"; } }
 void (*const WriteLogFn)(const std::wstring&)=Log;
-void DispatchLog(const std::wstring& s){if(s==L"completed")finalExitCode=0;else if(s==L"incomplete")finalExitCode=1;if(s==L"SecurityRemediator started")WriteLogFn(L"SecurityRemediator version 1.2.1, author: YiLanTingYu, started");else WriteLogFn(s);}
+void DispatchLog(const std::wstring& s){if(s==L"SecurityRemediator started")WriteLogFn(L"SecurityRemediator version 1.2.4, author: YiLanTingYu, started");else WriteLogFn(s);}
 #define Log(s) DispatchLog(s)
 std::wstring Join(const std::wstring&a,const std::wstring&b){return a+(a.empty()||a.back()==L'\\'?L"":L"\\")+b;}
 std::wstring ExeDir(){wchar_t b[MAX_PATH]{};DWORD n=GetModuleFileNameW(nullptr,b,_countof(b));std::wstring p(b,n);size_t i=p.find_last_of(L"\\/");return i==std::wstring::npos?L".":p.substr(0,i);}
 struct DefaultLogPath { DefaultLogPath(){logDir=ExeDir();} } defaultLogPath;
 struct DirectoryBootstrap { DirectoryBootstrap(){ wchar_t p[MAX_PATH]{}; if(SUCCEEDED(SHGetFolderPathW(nullptr,CSIDL_COMMON_APPDATA,nullptr,SHGFP_TYPE_CURRENT,p))) { std::wstring d=Join(p,kProduct); SHCreateDirectoryExW(nullptr,d.c_str(),nullptr); } } } directoryBootstrap;
+std::wstring Quote(const std::wstring& value){return L"\""+value+L"\"";}
+bool HasHtmlReport(const std::wstring& directory){WIN32_FIND_DATAW data{};HANDLE search=FindFirstFileW(Join(directory,L"verification-report_*.html").c_str(),&data);if(search==INVALID_HANDLE_VALUE)return false;FindClose(search);return true;}
+bool GenerateHtmlReport(){
+  const std::wstring directory=ExeDir(),script=Join(directory,L"verify-remediator.ps1");
+  if(GetFileAttributesW(script.c_str())==INVALID_FILE_ATTRIBUTES)return false;
+  wchar_t systemDirectory[MAX_PATH]{};if(!GetSystemDirectoryW(systemDirectory,_countof(systemDirectory)))return false;
+  const std::wstring powershell=Join(systemDirectory,L"WindowsPowerShell\\v1.0\\powershell.exe");
+#ifdef _WIN64
+  const std::wstring inspector=Join(directory,L"remediator-inspector-x64.exe");
+#else
+  const std::wstring inspector=Join(directory,L"remediator-inspector.exe");
+#endif
+  std::wstring command=Quote(powershell)+L" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "+Quote(script)+L" -Interactive -ExitWithStatus";
+  if(GetFileAttributesW(inspector.c_str())!=INVALID_FILE_ATTRIBUTES)command+=L" -InspectorPath "+Quote(inspector);
+  std::vector<wchar_t> commandLine(command.begin(),command.end());commandLine.push_back(L'\0');
+  STARTUPINFOW startup{};startup.cb=sizeof(startup);PROCESS_INFORMATION process{};
+  if(!CreateProcessW(powershell.c_str(),commandLine.data(),nullptr,nullptr,FALSE,CREATE_NO_WINDOW,nullptr,directory.c_str(),&startup,&process))return false;
+  WaitForSingleObject(process.hProcess,INFINITE);DWORD exitCode=0;GetExitCodeProcess(process.hProcess,&exitCode);CloseHandle(process.hThread);CloseHandle(process.hProcess);
+  return (exitCode==0||exitCode==5)&&HasHtmlReport(directory);
+}
 bool IsSystem(){HANDLE t=nullptr; if(!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&t)) return false; DWORD n=0; GetTokenInformation(t,TokenUser,nullptr,0,&n); std::vector<BYTE> b(n); bool ok=false; if(GetTokenInformation(t,TokenUser,b.data(),n,&n)){PSID s=((TOKEN_USER*)b.data())->User.Sid; PSID sys=nullptr; ConvertStringSidToSidW(L"S-1-5-18",&sys); ok=EqualSid(s,sys); LocalFree(sys);} CloseHandle(t); return ok;}
 bool IsElevatedAdministrator(){HANDLE t=nullptr; if(!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&t)) return false; TOKEN_ELEVATION e{}; DWORD n=0; bool elevated=GetTokenInformation(t,TokenElevation,&e,sizeof(e),&n)&&e.TokenIsElevated!=0; CloseHandle(t); return elevated;}
 bool IsAuthorized(){return IsSystem()||IsElevatedAdministrator();}
@@ -116,4 +136,4 @@ if(logDir.empty()){wchar_t p[MAX_PATH];SHGetFolderPathW(nullptr,CSIDL_COMMON_APP
 #endif
 
 #define IsSystem IsAuthorized
-int WINAPI wWinMain(HINSTANCE,HINSTANCE,LPWSTR,int){int argc=0;LPWSTR*av=CommandLineToArgvW(GetCommandLineW(),&argc);std::wstring mode=L"apply";bool bad=false;for(int i=1;i<argc;i++){if(!_wcsicmp(av[i],L"/audit"))mode=L"audit";else if(!_wcsicmp(av[i],L"/rollback"))mode=L"rollback";else if(!_wcsicmp(av[i],L"/apply"))mode=L"apply";else if(!_wcsicmp(av[i],L"/log-dir")&&i+1<argc)logDir=av[++i];else bad=true;}if(logDir.empty()){wchar_t p[MAX_PATH];SHGetFolderPathW(nullptr,CSIDL_COMMON_APPDATA,nullptr,SHGFP_TYPE_CURRENT,p);logDir=Join(Join(p,kProduct),L"Logs");}CreateDirectoryW(logDir.c_str(),nullptr);SYSTEMTIME t;GetLocalTime(&t);wchar_t fn[64];swprintf_s(fn,L"%04u%02u%02u-%02u%02u%02u.log",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);logFile.open(Join(logDir,fn),std::ios::out);Log(L"SecurityRemediator started");int rc=0;if(bad)rc=2;else if(mode==L"rollback")rc=Rollback()?0:1;else if(!IsSystem())rc=3;else if(mode==L"audit")rc=Apply(true)?0:5;else rc=Apply(false)?(rebootNeeded?4:0):1;std::wofstream jf(Join(logDir,L"last-result.json"),std::ios::trunc);jf<<L"{\"exitCode\":"<<rc<<L",\"mode\":\""<<mode<<L"\",\"changed\":"<<(changed?L"true":L"false")<<L",\"failures\":"<<failures<<L"}\n";jf.close();Log(rc==0?L"completed":L"incomplete");logFile.close();LocalFree(av);return rc;}
+int WINAPI wWinMain(HINSTANCE,HINSTANCE,LPWSTR,int){int argc=0;LPWSTR*av=CommandLineToArgvW(GetCommandLineW(),&argc);std::wstring mode=L"apply";bool bad=false;for(int i=1;i<argc;i++){if(!_wcsicmp(av[i],L"/audit"))mode=L"audit";else if(!_wcsicmp(av[i],L"/rollback"))mode=L"rollback";else if(!_wcsicmp(av[i],L"/apply"))mode=L"apply";else if(!_wcsicmp(av[i],L"/log-dir")&&i+1<argc)logDir=av[++i];else bad=true;}if(logDir.empty()){wchar_t p[MAX_PATH];SHGetFolderPathW(nullptr,CSIDL_COMMON_APPDATA,nullptr,SHGFP_TYPE_CURRENT,p);logDir=Join(Join(p,kProduct),L"Logs");}CreateDirectoryW(logDir.c_str(),nullptr);SYSTEMTIME t;GetLocalTime(&t);wchar_t fn[64];swprintf_s(fn,L"%04u%02u%02u-%02u%02u%02u.log",t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond);logFile.open(Join(logDir,fn),std::ios::out);Log(L"SecurityRemediator started");int rc=0;if(bad)rc=2;else if(mode==L"rollback")rc=Rollback()?0:1;else if(!IsSystem())rc=3;else if(mode==L"audit")rc=Apply(true)?0:5;else rc=Apply(false)?(rebootNeeded?4:0):1;finalExitCode=rc;finalMode=mode;std::wofstream jf(Join(logDir,L"last-result.json"),std::ios::trunc);jf<<L"{\"exitCode\":"<<rc<<L",\"mode\":\""<<mode<<L"\",\"changed\":"<<(changed?L"true":L"false")<<L",\"failures\":"<<failures<<L"}\n";jf.close();if(!bad)Log(GenerateHtmlReport()?L"HTML verification report generated in the program directory":L"Failed to generate HTML verification report; verify-remediator.ps1 may be missing");Log(rc==0?L"completed":L"incomplete");logFile.close();LocalFree(av);return rc;}

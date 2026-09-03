@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(SecurityRemediator LANGUAGES CXX)
+project(SecurityRemediator LANGUAGES C CXX)
+
+add_library(sqlite3 STATIC third_party/sqlite/sqlite3.c)
+target_compile_definitions(sqlite3 PRIVATE _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN SQLITE_THREADSAFE=0 SQLITE_OMIT_LOAD_EXTENSION SQLITE_OMIT_DEPRECATED)
+target_compile_options(sqlite3 PRIVATE /w /MT)
 
 add_executable(remediator WIN32 src/main.cpp src/remediator.rc)
 target_compile_features(remediator PRIVATE cxx_std_17)
@@ -12,7 +16,8 @@ target_compile_features(remediator-inspector PRIVATE cxx_std_17)
 target_compile_definitions(remediator-inspector PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0601)
 target_compile_options(remediator-inspector PRIVATE /W4 /permissive- /utf-8 /MT)
 target_link_options(remediator-inspector PRIVATE /MANIFESTUAC:NO)
-target_link_libraries(remediator-inspector PRIVATE shell32)
+target_include_directories(remediator-inspector PRIVATE third_party/sqlite)
+target_link_libraries(remediator-inspector PRIVATE shell32 sqlite3)
 
 add_executable(rule-signer tools/rule_signer.cpp)
 target_compile_features(rule-signer PRIVATE cxx_std_17)
