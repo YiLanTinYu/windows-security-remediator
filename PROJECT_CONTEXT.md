@@ -3,12 +3,12 @@
 ## 1. 项目概况
 
 - 项目名称：高危端口阻断工具（Security Remediator）
-- 当前版本：1.2.0.0
+- 当前版本：1.2.1.0
 - 作者：倚栏听雨
 - 项目目录：`C:\运维小工具\高危端口阻断`
 - 交付目录：`C:\运维小工具\高危端口阻断\dist`
 - 支持系统：Windows 7 SP1、Windows 10、Windows 11
-- 程序架构：原生 Win32 x86，可在 32 位和 64 位 Windows 上运行
+- 程序架构：同时交付原生 Win32 x86 和 x64；x86 用于 32 位系统并兼容 64 位系统，x64 用于 64 位系统
 - 运行方式：单文件 EXE、后台静默运行，不依赖 PowerShell、.NET 或额外 VC++ 运行库
 
 ## 2. 已确认需求
@@ -28,6 +28,8 @@
 11. 提供中文结果，便于非专业人员判断是否成功。
 12. 程序带有自定义图标、版本信息和作者信息。
 13. 验证脚本只读采集网络配置与 USB 存储设备注册表记录，并直接写入离线 `verification-report.html`。
+14. 首次 `/apply` 创建初始回滚备份；后续重复运行校验并保留有效备份，仅在备份缺失或格式无效时重新创建。
+15. 提供非静默现场检查版，显示进度并自动打开 HTML；分别列出 Edge、Chrome、Firefox、IE 的安装状态和已安装浏览器的密码保存设置，不读取任何已保存密码或登录数据。
 
 ## 3. 现有功能
 
@@ -90,6 +92,9 @@ verification-report.html  最近一次离线 HTML 验证报告
 
 ```text
 remediator.exe
+remediator-x64.exe
+remediator-inspector.exe
+remediator-inspector-x64.exe
 verify-remediator.bat
 verify-remediator.ps1
 README.txt
@@ -98,7 +103,10 @@ app-icon.png
 remediator.ico
 ```
 
-- `remediator.exe`：正式修复程序。
+- `remediator.exe`：x86 正式修复程序，适用于 32 位系统并兼容 64 位系统。
+- `remediator-x64.exe`：x64 正式修复程序，64 位 Win10/Win11 优先使用。
+- `remediator-inspector.exe`：x86 非静默现场检查程序，只读检查并显示进度。
+- `remediator-inspector-x64.exe`：x64 非静默现场检查程序，只读检查并显示进度。
 - `verify-remediator.bat`：适合新手使用的验证入口。
 - `verify-remediator.ps1`：验证逻辑，由批处理调用。
 - `README.txt`：终端用户使用说明。
@@ -115,15 +123,14 @@ remediator.ico
 - Windows SDK
 - CMake
 
-构建目标使用 Win32/x86 和 `/MT` 静态运行库。为避免中文路径影响链接器和 PDB，建议使用纯英文构建目录：
+构建目标使用 `/MT` 静态运行库。为避免中文路径影响链接器和 PDB，建议分别使用纯英文构建目录：
 
 ```bat
-cmake -S "C:\运维小工具\高危端口阻断" ^
-  -B "C:\Build\SecurityRemediator" ^
-  -G "NMake Makefiles" ^
-  -DCMAKE_BUILD_TYPE=Release
+cmake -S "C:\运维小工具\高危端口阻断" -B "C:\Build\SecurityRemediator-x86" -A Win32
+cmake --build "C:\Build\SecurityRemediator-x86" --config Release
 
-cmake --build "C:\Build\SecurityRemediator"
+cmake -S "C:\运维小工具\高危端口阻断" -B "C:\Build\SecurityRemediator-x64" -A x64
+cmake --build "C:\Build\SecurityRemediator-x64" --config Release
 ```
 
 构建完成后，应把正式 EXE 更新到 `dist`，并检查文件属性中的版本、说明、作者和图标。
@@ -138,8 +145,12 @@ cmake --build "C:\Build\SecurityRemediator"
 - `net share` 无法启动 Server 服务，返回系统错误 1058，符合禁用预期。
 - 已提供一键验证脚本，检查服务、RDP、NetBIOS、防火墙规则和本机监听状态。
 - 验证脚本生成单个离线 HTML 报告，汇总全部检查项，对比预期结果和实际结果，并逐项列出防火墙规则、NetBIOS 网卡、网络配置和 USB 存储设备记录。
-- 程序已加入图标、版本 1.2.0.0 和作者“倚栏听雨”。
-- 1.2.0.0 Release/Win32 构建通过；验证脚本将网络配置与 USBSTOR 中文列表写入 `verification-report.html`。
+- 程序已加入图标、版本 1.2.1.0 和作者“倚栏听雨”。
+- 1.2.1.0 Release/Win32 x86 与 x64 构建通过；重复 `/apply` 备份保留测试通过。
+- 验证脚本将网络配置与 USBSTOR 中文列表写入 `verification-report.html`。
+- x86/x64 现场检查程序端到端测试通过，均能等待检查完成并生成包含浏览器密码保存设置的 HTML 报告。
+- 浏览器检查只读取官方策略键和当前用户的普通设置文件，不访问浏览器密码存储文件。
+- 浏览器安装状态与密码保存设置分开显示：未安装为“不适用”，已安装但没有确认禁用配置为“异常”；已在开发机复现并验证 Edge、Chrome、IE 已安装、Firefox 未安装的识别结果。
 - 非提升令牌读取 `NetworkList\Profiles` 可能返回拒绝访问；正式环境应使用 SYSTEM 或已提权管理员运行验证脚本。
 
 ### 6.2 正式部署前仍需完成

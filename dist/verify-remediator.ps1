@@ -1,11 +1,12 @@
-﻿$ErrorActionPreference = 'Continue'
+﻿param([switch]$Interactive,[switch]$ExitWithStatus)
+$ErrorActionPreference = 'Continue'
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
 $report = Join-Path $base 'verification-report.html'
 $legacyLog = Join-Path $base 'verification.log'
 $details=New-Object System.Collections.ArrayList
 function W([string]$s) { [void]$script:details.Add($s) }
 $summary=@()
-$firewallRows=@();$netbiosRows=@();$networkRows=@();$usbRows=@()
+$firewallRows=@();$netbiosRows=@();$networkRows=@();$usbRows=@();$browserRows=@()
 function S([string]$item,[string]$expected,[string]$actual,[string]$conclusion) {
     $script:summary+=New-Object PSObject -Property @{Item=$item;Expected=$expected;Actual=$actual;Conclusion=$conclusion}
 }
@@ -13,8 +14,10 @@ function EncodeHtml($value) {
     if($null -eq $value){return ''}
     return ([string]$value).Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;').Replace("'",'&#39;')
 }
-function C([string]$conclusion) { if($conclusion -eq '通过'){'pass'}elseif($conclusion -eq '异常'){'fail'}else{'review'} }
+function C([string]$conclusion) { if($conclusion -eq '通过'){'pass'}elseif($conclusion -eq '异常'){'fail'}elseif($conclusion -eq '不适用'){'na'}elseif($conclusion -eq '已识别'){'info'}else{'review'} }
+function ShowStep([string]$text) { if($Interactive){Write-Host ("[检查] {0}" -f $text) -ForegroundColor Cyan} }
 W ('=' * 60); W ("SecurityRemediator 验证开始：{0}" -f (Get-Date)); W ""
+ShowStep 'Server 文件共享服务'
 W '[1] 检查 Server 文件共享服务（LanmanServer）'
 sc.exe query LanmanServer 2>&1 | ForEach-Object { W $_ }
 sc.exe qc LanmanServer 2>&1 | ForEach-Object { W $_ }
@@ -24,6 +27,7 @@ try {
     W ("结果：{0}" -f $actual); S 'Server 文件共享服务' '已停止、已禁用' $actual $(if($service.Status -eq 'Stopped' -and $start -eq 4){'通过'}else{'异常'})
 } catch { W '结果：无法读取 Server 服务。'; S 'Server 文件共享服务' '已停止、已禁用' '无法读取' '异常' }
 W ''
+ShowStep '远程桌面服务'
 W '[2] 检查远程桌面服务（TermService）'
 sc.exe query TermService 2>&1 | ForEach-Object { W $_ }
 sc.exe qc TermService 2>&1 | ForEach-Object { W $_ }
@@ -33,10 +37,12 @@ try {
     W ("结果：{0}" -f $actual); S '远程桌面服务' '已停止、已禁用' $actual $(if($service.Status -eq 'Stopped' -and $start -eq 4){'通过'}else{'异常'})
 } catch { W '结果：无法读取远程桌面服务。'; S '远程桌面服务' '已停止、已禁用' '无法读取' '异常' }
 W ''
+ShowStep '远程桌面连接策略'
 W '[3] 检查远程桌面注册表配置'
 reg.exe query 'HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server' /v fDenyTSConnections 2>&1 | ForEach-Object { W $_ }
 try {$rdp=(Get-ItemProperty -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -ErrorAction Stop).fDenyTSConnections;S '远程桌面连接策略' '禁止连接（值为1）' $(if($rdp -eq 1){'已禁止连接（值为1）'}else{"当前值=$rdp"}) $(if($rdp -eq 1){'通过'}else{'异常'})}catch{S '远程桌面连接策略' '禁止连接（值为1）' '无法读取' '异常'}
 W '预期：fDenyTSConnections 为 0x1。'; W ''
+ShowStep '防火墙阻断规则'
 W '[4] 检查防火墙规则'
 $ruleNames=@('TCP-22','TCP-135','TCP-136','UDP-136','UDP-137','UDP-138','TCP-139','TCP-445','TCP-3389','UDP-3389')
 $firewallPassed=0;$firewallMissing=0;$firewallDuplicateKinds=0;$firewallDuplicateRules=0
@@ -51,10 +57,12 @@ foreach($tag in $ruleNames){
     $firewallRows+=New-Object PSObject -Property @{Rule=$tag;Expected='1条';Actual=$count;Conclusion=$conclusion}
 }
 W '预期：每个 SecurityRemediator 规则均为 1 条。'; W ''
+ShowStep 'NetBIOS 网卡配置'
 W '[5] 检查 NetBIOS 配置'
 reg.exe query 'HKLM\SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces' /s /v NetbiosOptions 2>&1 | ForEach-Object { W $_ }
 try{$interfaces=Get-ChildItem -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces' -ErrorAction Stop;$netbiosTotal=0;$netbiosPassed=0;foreach($interface in $interfaces){$netbiosTotal++;$option=(Get-ItemProperty -LiteralPath $interface.PSPath -Name NetbiosOptions -ErrorAction Stop).NetbiosOptions;$conclusion=$(if($option -eq 2){$netbiosPassed++;'通过'}else{'异常'});$netbiosRows+=New-Object PSObject -Property @{Interface=$interface.PSChildName;Expected=2;Actual=$option;Conclusion=$conclusion}};S 'NetBIOS 配置汇总' '所有网卡均禁用（值为2）' ("{0}/{1}个网卡为禁用" -f $netbiosPassed,$netbiosTotal) $(if($netbiosTotal -gt 0 -and $netbiosPassed -eq $netbiosTotal){'通过'}else{'异常'})}catch{S 'NetBIOS 配置汇总' '所有网卡均禁用（值为2）' '无法完整读取' '异常'}
 W '预期：各网卡 NetbiosOptions 为 0x2。'; W ''
+ShowStep '本机端口监听'
 W '[6] 检查本机 TCP 监听（仅供参考）'
 $listeners=@(netstat.exe -ano | Select-String ':135|:139|:445|:3389');$listeners|ForEach-Object { W $_.Line }
 S '端口外部连通性' '其他电脑无法连接目标端口' ("本机发现{0}条相关监听记录" -f $listeners.Count) '需复核'
@@ -71,6 +79,7 @@ function RegistryTime($bytes) {
 }
 function NetworkCategory($value) { if ($value -eq 0) {'公用'} elseif ($value -eq 1) {'专用'} elseif ($value -eq 2) {'域'} else {V $value} }
 
+ShowStep '网络配置注册表记录'
 W '[7] 网络配置注册表记录（NetworkList\Profiles）'
 W "序号`t配置文件 GUID`t网络名称`t描述`t类别`t创建时间`t最后连接时间"
 try {
@@ -85,6 +94,7 @@ try {
 } catch { W ("错误`t无法读取 NetworkList\Profiles：{0}" -f $_.Exception.Message);S '网络配置记录' '能够正常读取' '读取失败' '异常' }
 W ''
 
+ShowStep 'USB 存储设备注册表记录'
 W '[8] USB 存储设备注册表记录（USBSTOR）'
 W "序号`t设备类型`t实例 ID/序列号`t友好名称`t设备描述`t厂商"
 try {
@@ -101,6 +111,58 @@ try {
 } catch { W ("错误`t无法读取 USBSTOR：{0}" -f $_.Exception.Message);S 'USB 存储设备记录' '能够正常读取' '读取失败' '异常' }
 W ''
 
+function AddBrowserRow([string]$browser,[string]$check,[string]$scope,[string]$source,[string]$expected,[string]$actual,[string]$conclusion,[string]$evidence){
+    $script:browserRows+=New-Object PSObject -Property @{Browser=$browser;Check=$check;Scope=$scope;Source=$source;Expected=$expected;Actual=$actual;Conclusion=$conclusion;Evidence=$evidence}
+}
+function TestBrowserInstalled([string]$executable,[string[]]$paths){
+    foreach($path in $paths){if($path -and (Test-Path -LiteralPath $path)){return $true}}
+    foreach($base in @('Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths','Registry::HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths','Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths')){
+        if(Test-Path -LiteralPath (Join-Path $base $executable)){return $true}
+    }
+    return $false
+}
+function AddBrowserInstallation([string]$browser,[bool]$installed){
+    if($installed){AddBrowserRow $browser '安装状态' '本机' '程序文件/App Paths' '仅记录' '已安装' '已识别' '检测到浏览器程序或安装注册信息'}
+    else{AddBrowserRow $browser '安装状态' '本机' '程序文件/App Paths' '仅记录' '未安装' '不适用' '未检测到浏览器程序或安装注册信息'}
+}
+function GetPolicyValue([string[]]$paths,[string]$name){
+    foreach($path in $paths){try{$value=(Get-ItemProperty -LiteralPath $path -Name $name -ErrorAction Stop).$name;return New-Object PSObject -Property @{Path=$path;Value=[int]$value}}catch{}}
+    return $null
+}
+function AddPolicyResult([string]$browser,$policy,[string]$name){
+    if($policy.Value -eq 0){AddBrowserRow $browser '自动保存密码设置' '有效策略' '强制策略' '禁用保存密码' '已禁用' '通过' ("{0}=0" -f $name)}
+    else{AddBrowserRow $browser '自动保存密码设置' '有效策略' '强制策略' '禁用保存密码' '已启用' '异常' ("{0}={1}" -f $name,$policy.Value)}
+}
+function AddChromiumProfiles([string]$browser,[string]$root){
+    $files=@();if($root -and (Test-Path -LiteralPath $root)){$files=@(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue|Where-Object {$_.PSIsContainer -and ($_.Name -eq 'Default' -or $_.Name -like 'Profile *')}|ForEach-Object {Join-Path $_.FullName 'Preferences'}|Where-Object {Test-Path -LiteralPath $_})}
+    foreach($file in $files){$profile=Split-Path (Split-Path $file -Parent) -Leaf;try{$text=[IO.File]::ReadAllText($file);$matches=[regex]::Matches($text,'"(?:credentials_enable_service|password_manager_enabled)"\s*:\s*(true|false)','IgnoreCase');$values=@($matches|ForEach-Object {$_.Groups[1].Value.ToLowerInvariant()});if($values -contains 'false'){AddBrowserRow $browser '自动保存密码设置' $profile '用户配置' '禁用保存密码' '已禁用' '通过' '密码保存开关为 false'}elseif($values -contains 'true'){AddBrowserRow $browser '自动保存密码设置' $profile '用户配置' '禁用保存密码' '已启用' '异常' '密码保存开关为 true'}else{AddBrowserRow $browser '自动保存密码设置' $profile '用户配置' '禁用保存密码' '未发现禁用配置' '异常' '未找到关闭密码保存的配置，按未禁用处理'}}catch{AddBrowserRow $browser '自动保存密码设置' $profile '用户配置' '禁用保存密码' '读取失败' '需复核' $_.Exception.Message}}
+    if($files.Count -eq 0){AddBrowserRow $browser '自动保存密码设置' '当前用户' '用户配置' '禁用保存密码' '未发现禁用配置' '异常' '浏览器已安装，但当前身份下没有可确认已禁用的配置'}
+}
+
+if($Interactive){
+    ShowStep '浏览器密码保存设置（不读取密码内容）'
+    W '[9] 浏览器密码保存设置'
+    $identity=[Security.Principal.WindowsIdentity]::GetCurrent();if($identity.IsSystem){AddBrowserRow '运行身份' '检查身份' 'SYSTEM' '运行身份' '检查当前登录用户' '无法代表交互用户' '需复核' '请以待检查用户的已提升管理员会话运行'}
+
+    $edgePaths=@($(if($env:ProgramFiles){Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'}),$(if(${env:ProgramFiles(x86)}){Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'}),$(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe'}));$edgeInstalled=TestBrowserInstalled 'msedge.exe' $edgePaths;AddBrowserInstallation 'Microsoft Edge' $edgeInstalled
+    if($edgeInstalled){$edgePolicy=GetPolicyValue @('Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge','Registry::HKEY_CURRENT_USER\SOFTWARE\Policies\Microsoft\Edge') 'PasswordManagerEnabled';if($null -ne $edgePolicy){AddPolicyResult 'Microsoft Edge' $edgePolicy 'PasswordManagerEnabled'}else{$edgeRoot=$(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'}else{''});AddChromiumProfiles 'Microsoft Edge' $edgeRoot}}
+
+    $chromePaths=@($(if($env:ProgramFiles){Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe'}),$(if(${env:ProgramFiles(x86)}){Join-Path ${env:ProgramFiles(x86)} 'Google\Chrome\Application\chrome.exe'}),$(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Google\Chrome\Application\chrome.exe'}));$chromeInstalled=TestBrowserInstalled 'chrome.exe' $chromePaths;AddBrowserInstallation 'Google Chrome' $chromeInstalled
+    if($chromeInstalled){$chromePolicy=GetPolicyValue @('Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome','Registry::HKEY_CURRENT_USER\SOFTWARE\Policies\Google\Chrome') 'PasswordManagerEnabled';if($null -ne $chromePolicy){AddPolicyResult 'Google Chrome' $chromePolicy 'PasswordManagerEnabled'}else{$chromeRoot=$(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data'}else{''});AddChromiumProfiles 'Google Chrome' $chromeRoot}}
+
+    $firefoxPaths=@($(if($env:ProgramFiles){Join-Path $env:ProgramFiles 'Mozilla Firefox\firefox.exe'}),$(if(${env:ProgramFiles(x86)}){Join-Path ${env:ProgramFiles(x86)} 'Mozilla Firefox\firefox.exe'}),$(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Mozilla Firefox\firefox.exe'}));$firefoxInstalled=TestBrowserInstalled 'firefox.exe' $firefoxPaths;AddBrowserInstallation 'Mozilla Firefox' $firefoxInstalled
+    if($firefoxInstalled){$firefoxPolicy=GetPolicyValue @('Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Mozilla\Firefox','Registry::HKEY_CURRENT_USER\SOFTWARE\Policies\Mozilla\Firefox') 'OfferToSaveLogins';if($null -ne $firefoxPolicy){AddPolicyResult 'Mozilla Firefox' $firefoxPolicy 'OfferToSaveLogins'}else{$firefoxRoot=$(if($env:APPDATA){Join-Path $env:APPDATA 'Mozilla\Firefox\Profiles'}else{''});$firefoxFiles=@();if($firefoxRoot -and (Test-Path -LiteralPath $firefoxRoot)){$firefoxFiles=@(Get-ChildItem -LiteralPath $firefoxRoot -ErrorAction SilentlyContinue|Where-Object {$_.PSIsContainer}|ForEach-Object {Join-Path $_.FullName 'prefs.js'}|Where-Object {Test-Path -LiteralPath $_})};foreach($file in $firefoxFiles){$profile=Split-Path (Split-Path $file -Parent) -Leaf;try{$text=[IO.File]::ReadAllText($file);$match=[regex]::Match($text,'user_pref\("signon\.rememberSignons",\s*(true|false)\s*\);','IgnoreCase');if(!$match.Success){AddBrowserRow 'Mozilla Firefox' '自动保存密码设置' $profile '用户配置' '禁用保存密码' '未发现禁用配置' '异常' '未找到 signon.rememberSignons=false'}elseif($match.Groups[1].Value -eq 'false'){AddBrowserRow 'Mozilla Firefox' '自动保存密码设置' $profile '用户配置' '禁用保存密码' '已禁用' '通过' 'signon.rememberSignons=false'}else{AddBrowserRow 'Mozilla Firefox' '自动保存密码设置' $profile '用户配置' '禁用保存密码' '已启用' '异常' 'signon.rememberSignons=true'}}catch{AddBrowserRow 'Mozilla Firefox' '自动保存密码设置' $profile '用户配置' '禁用保存密码' '读取失败' '需复核' $_.Exception.Message}};if($firefoxFiles.Count -eq 0){AddBrowserRow 'Mozilla Firefox' '自动保存密码设置' '当前用户' '用户配置' '禁用保存密码' '未发现禁用配置' '异常' '浏览器已安装，但当前身份下没有可确认已禁用的配置'}}}
+
+    $iePaths=@($(if($env:ProgramFiles){Join-Path $env:ProgramFiles 'Internet Explorer\iexplore.exe'}),$(if(${env:ProgramFiles(x86)}){Join-Path ${env:ProgramFiles(x86)} 'Internet Explorer\iexplore.exe'}));$ieInstalled=TestBrowserInstalled 'iexplore.exe' $iePaths;AddBrowserInstallation 'Internet Explorer' $ieInstalled
+    if($ieInstalled){try{$ie=(Get-ItemProperty -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\Microsoft\Internet Explorer\Main' -Name 'FormSuggest Passwords' -ErrorAction Stop).'FormSuggest Passwords';if([string]$ie -match '^(no|false|0)$'){AddBrowserRow 'Internet Explorer' '自动保存密码设置' '当前用户' '用户配置' '禁用保存密码' '已禁用' '通过' ("FormSuggest Passwords={0}" -f $ie)}else{AddBrowserRow 'Internet Explorer' '自动保存密码设置' '当前用户' '用户配置' '禁用保存密码' '已启用' '异常' ("FormSuggest Passwords={0}" -f $ie)}}catch{AddBrowserRow 'Internet Explorer' '自动保存密码设置' '当前用户' '用户配置' '禁用保存密码' '未发现禁用配置' '异常' '未找到 FormSuggest Passwords，按未禁用处理'}}
+
+    $settingRows=@($browserRows|Where-Object {$_.Check -eq '自动保存密码设置' -or $_.Check -eq '检查身份'});$browserFailed=@($settingRows|Where-Object {$_.Conclusion -eq '异常'}).Count;$browserReview=@($settingRows|Where-Object {$_.Conclusion -eq '需复核'}).Count;$browserPassed=@($settingRows|Where-Object {$_.Conclusion -eq '通过'}).Count
+    $browserInstalledCount=@($browserRows|Where-Object {$_.Check -eq '安装状态' -and $_.Actual -eq '已安装'}).Count;$browserNotInstalledCount=@($browserRows|Where-Object {$_.Check -eq '安装状态' -and $_.Actual -eq '未安装'}).Count
+    $browserConclusion=$(if($browserFailed -gt 0){'异常'}elseif($browserReview -gt 0){'需复核'}else{'通过'})
+    S '浏览器密码保存设置' '已安装浏览器均禁用保存密码' ("已安装{0}个，未安装{1}个；设置通过{2}项，异常{3}项，需复核{4}项" -f $browserInstalledCount,$browserNotInstalledCount,$browserPassed,$browserFailed,$browserReview) $browserConclusion
+    W ("浏览器安装：已安装{0}个，未安装{1}个；密码设置：通过{2}项，异常{3}项，需复核{4}项" -f $browserInstalledCount,$browserNotInstalledCount,$browserPassed,$browserFailed,$browserReview);W ''
+}
+
 $passed=@($summary|Where-Object {$_.Conclusion -eq '通过'}).Count;$failed=@($summary|Where-Object {$_.Conclusion -eq '异常'}).Count;$review=@($summary|Where-Object {$_.Conclusion -eq '需复核'}).Count
 $finished=Get-Date
 W ("验证结束：{0}" -f $finished)
@@ -109,7 +171,7 @@ if($failed -eq 0){$overallClass='pass';$overallText='本机配置检查未发现
 $html=New-Object System.Text.StringBuilder
 [void]$html.AppendLine('<!doctype html>')
 [void]$html.AppendLine('<html lang="zh-CN"><head><meta charset="utf-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><title>高危端口阻断验证报告</title>')
-[void]$html.AppendLine('<style>body{margin:0;background:#f3f5f7;color:#202124;font-family:"Microsoft YaHei",Arial,sans-serif;font-size:14px;line-height:1.6}.wrap{max-width:1200px;margin:24px auto;padding:0 18px}.header,.card{background:#fff;border:1px solid #dfe3e8;border-radius:6px;margin-bottom:18px;padding:20px}.header h1{margin:0 0 8px;font-size:24px}.meta{color:#687078}.banner{border-left:6px solid #2e7d32}.banner.fail{border-left-color:#c62828}.counts{font-size:18px;margin:8px 0}.pass{color:#1b5e20;font-weight:bold}.fail{color:#b71c1c;font-weight:bold}.review{color:#9a6700;font-weight:bold}h2{font-size:19px;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid #e7eaed}table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border:1px solid #d9dde2;padding:8px 10px;text-align:left;vertical-align:top;word-break:break-all}th{background:#eef2f5;white-space:nowrap}.scroll{overflow-x:auto}.note{background:#fff8e1;border:1px solid #f0d98a;padding:10px 12px;margin-top:12px}pre{white-space:pre-wrap;word-wrap:break-word;background:#f7f8fa;border:1px solid #dfe3e8;padding:14px;max-height:520px;overflow:auto}.small{font-size:12px;color:#687078}</style></head><body><div class="wrap">')
+    [void]$html.AppendLine('<style>body{margin:0;background:#f3f5f7;color:#202124;font-family:"Microsoft YaHei",Arial,sans-serif;font-size:14px;line-height:1.6}.wrap{max-width:1200px;margin:24px auto;padding:0 18px}.header,.card{background:#fff;border:1px solid #dfe3e8;border-radius:6px;margin-bottom:18px;padding:20px}.header h1{margin:0 0 8px;font-size:24px}.meta{color:#687078}.banner{border-left:6px solid #2e7d32}.banner.fail{border-left-color:#c62828}.counts{font-size:18px;margin:8px 0}.pass{color:#1b5e20;font-weight:bold}.fail{color:#b71c1c;font-weight:bold}.review{color:#9a6700;font-weight:bold}.info{color:#1565c0;font-weight:bold}.na{color:#687078;font-weight:bold}h2{font-size:19px;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid #e7eaed}table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border:1px solid #d9dde2;padding:8px 10px;text-align:left;vertical-align:top;word-break:break-all}th{background:#eef2f5;white-space:nowrap}.scroll{overflow-x:auto}.note{background:#fff8e1;border:1px solid #f0d98a;padding:10px 12px;margin-top:12px}pre{white-space:pre-wrap;word-wrap:break-word;background:#f7f8fa;border:1px solid #dfe3e8;padding:14px;max-height:520px;overflow:auto}.small{font-size:12px;color:#687078}</style></head><body><div class="wrap">')
 [void]$html.AppendLine(('<div class="header banner {0}"><h1>高危端口阻断验证报告</h1><div class="meta">计算机：{1}　验证时间：{2}</div><div class="counts">通过 <span class="pass">{3}</span> 项　异常 <span class="fail">{4}</span> 项　需人工复核 <span class="review">{5}</span> 项</div><div>{6}</div></div>' -f $overallClass,(EncodeHtml $env:COMPUTERNAME),(EncodeHtml $finished.ToString('yyyy-MM-dd HH:mm:ss')),$passed,$failed,$review,(EncodeHtml $overallText)))
 
 [void]$html.AppendLine('<div class="card"><h2>一、检查结果汇总（预期与实际对比）</h2><div class="scroll"><table><thead><tr><th>序号</th><th>检查项目</th><th>预期结果</th><th>实际检查结果</th><th>结论</th></tr></thead><tbody>')
@@ -135,9 +197,17 @@ foreach($row in $usbRows){[void]$html.AppendLine(('<tr><td>{0}</td><td>{1}</td><
 if($usbRows.Count -eq 0){[void]$html.AppendLine('<tr><td colspan="6">未发现 USB 存储设备记录</td></tr>')}
 [void]$html.AppendLine('</tbody></table></div></div>')
 
-[void]$html.AppendLine(('<div class="card"><h2>六、原始检查信息</h2><p class="small">用于管理员进一步排查，普通使用者优先查看前面的汇总和逐项明细。</p><pre>{0}</pre></div>' -f (EncodeHtml ($details -join "`r`n"))))
+if($Interactive){
+    [void]$html.AppendLine('<div class="card"><h2>六、浏览器密码保存设置逐项明细</h2><p class="note">隐私说明：本功能只检查安装状态和设置，不读取或导出已保存密码、账号、Cookie 或登录内容。安装状态与密码保存设置分开显示；未安装显示“不适用”，不会误算为设置“通过”。</p><div class="scroll"><table><thead><tr><th>序号</th><th>浏览器</th><th>检查项目</th><th>范围/配置文件</th><th>来源</th><th>预期结果</th><th>实际结果</th><th>结论</th><th>判断依据</th></tr></thead><tbody>')
+    $i=0;foreach($row in $browserRows){$i++;[void]$html.AppendLine(('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td class="{7}">{8}</td><td>{9}</td></tr>' -f $i,(EncodeHtml $row.Browser),(EncodeHtml $row.Check),(EncodeHtml $row.Scope),(EncodeHtml $row.Source),(EncodeHtml $row.Expected),(EncodeHtml $row.Actual),(C $row.Conclusion),(EncodeHtml $row.Conclusion),(EncodeHtml $row.Evidence)))}
+    [void]$html.AppendLine('</tbody></table></div></div>')
+}
+
+[void]$html.AppendLine(('<div class="card"><h2>{0}、原始检查信息</h2><p class="small">用于管理员进一步排查，普通使用者优先查看前面的汇总和逐项明细。</p><pre>{1}</pre></div>' -f $(if($Interactive){'七'}else{'六'}),(EncodeHtml ($details -join "`r`n"))))
 [void]$html.AppendLine('</div></body></html>')
 $utf8=New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($report,$html.ToString(),$utf8)
 if(Test-Path -LiteralPath $legacyLog){Remove-Item -LiteralPath $legacyLog -Force}
 Write-Host "验证完成，HTML 报告：$report"
+if($Interactive){Write-Host ("现场检查汇总：通过 {0} 项，异常 {1} 项，需复核 {2} 项。" -f $passed,$failed,$review) -ForegroundColor Yellow}
+if($ExitWithStatus){if($failed -gt 0){exit 5}else{exit 0}}

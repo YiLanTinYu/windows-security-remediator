@@ -13,12 +13,12 @@ BEGIN
   BLOCK "StringFileInfo" BEGIN
     BLOCK "080404b0" BEGIN
       VALUE "CompanyName", "倚栏听雨\0"
-      VALUE "FileDescription", "Windows 高危端口静默修复程序\0"
+      VALUE "FileDescription", "Windows 现场安全检查工具\0"
       VALUE "FileVersion", "1.2.1.0\0"
-      VALUE "InternalName", "SecurityRemediator\0"
+      VALUE "InternalName", "SecurityRemediatorInspector\0"
       VALUE "LegalCopyright", "Copyright (C) 2026 倚栏听雨\0"
-      VALUE "OriginalFilename", "remediator.exe\0"
-      VALUE "ProductName", "Security Remediator\0"
+      VALUE "OriginalFilename", "remediator-inspector.exe\0"
+      VALUE "ProductName", "Security Remediator Inspector\0"
       VALUE "ProductVersion", "1.2.1.0\0"
     END
   END
