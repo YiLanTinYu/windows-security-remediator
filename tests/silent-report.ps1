@@ -9,12 +9,13 @@ $testDirectory=Join-Path $env:TEMP ("SecurityRemediatorSilentReportTest_{0}" -f 
 New-Item -ItemType Directory -Path $testDirectory | Out-Null
 
 try {
-    $is64=[IO.Path]::GetFileName($RemediatorPath) -match 'x64'
-    $remediatorName=$(if($is64){'remediator-x64.exe'}else{'remediator.exe'})
-    $inspectorName=$(if($is64){'remediator-inspector-x64.exe'}else{'remediator-inspector.exe'})
+    $is64=[IO.Path]::GetFileName($RemediatorPath) -match '64位'
+    $remediatorName=$(if($is64){'端口修复-64位.exe'}else{'端口修复-32位.exe'})
+    $inspectorName=$(if($is64){'安全检查-64位.exe'}else{'安全检查-32位.exe'})
     $testRemediator=Join-Path $testDirectory $remediatorName
     Copy-Item -LiteralPath $RemediatorPath -Destination $testRemediator
     Copy-Item -LiteralPath $VerifierPath -Destination (Join-Path $testDirectory 'verify-remediator.ps1')
+    Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $VerifierPath) 'wireless-remediator.ps1') -Destination (Join-Path $testDirectory 'wireless-remediator.ps1')
     Copy-Item -LiteralPath $InspectorPath -Destination (Join-Path $testDirectory $inspectorName)
 
     $process=Start-Process -FilePath $testRemediator -ArgumentList @('/audit','/log-dir',$testDirectory) -Wait -PassThru -WindowStyle Hidden

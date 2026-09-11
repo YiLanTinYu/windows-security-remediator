@@ -24,8 +24,7 @@ function GetTerminalNetworkIdentity {
 }
 $terminalNetwork=GetTerminalNetworkIdentity
 $safeIp=([string]$terminalNetwork.IP) -replace '[^0-9A-Za-z_.-]','-';$safeMac=([string]$terminalNetwork.MAC) -replace '[^0-9A-Za-z_.-]','-'
-$report = Join-Path $base ("verification-report_{0}_{1}.html" -f $safeIp,$safeMac)
-Get-ChildItem -LiteralPath $base -Filter 'verification-report*.html' -ErrorAction SilentlyContinue|Where-Object {$_.FullName -ne $report}|Remove-Item -Force -ErrorAction SilentlyContinue
+$report = Join-Path $base ("verification-report_{0}_{1}_{2}.html" -f $safeIp,$safeMac,(Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 $legacyLog = Join-Path $base 'verification.log'
 $details=New-Object System.Collections.ArrayList
 function W([string]$s) { [void]$script:details.Add($s) }
@@ -122,8 +121,12 @@ W ''
 ShowStep 'USB 存储设备注册表记录'
 W '[8] USB 存储设备注册表记录（USBSTOR）'
 W "序号`t设备类型`t实例 ID/序列号`t友好名称`t设备描述`t厂商"
+$usbReadError=''
 try {
-    $devices=Get-ChildItem -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USBSTOR' -ErrorAction Stop
+    $usbRoot='Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USBSTOR'
+    $rootMissing=$false
+    try{$null=Get-Item -LiteralPath $usbRoot -ErrorAction Stop}catch [System.Management.Automation.ItemNotFoundException]{$rootMissing=$true}
+    $devices=@();if(!$rootMissing){$devices=@(Get-ChildItem -LiteralPath $usbRoot -ErrorAction Stop)}
     $index=0
     foreach($device in $devices) {
         foreach($instance in (Get-ChildItem -LiteralPath $device.PSPath -ErrorAction Stop)) {
@@ -132,8 +135,8 @@ try {
             $usbRows+=New-Object PSObject -Property @{Index=$index;Type=(V $device.PSChildName);Instance=(V $instance.PSChildName);Name=(V $item.FriendlyName);Description=(V $item.DeviceDesc);Manufacturer=(V $item.Mfg)}
         }
     }
-    if($index -eq 0){W "-`t未发现 USB 存储设备记录"};S 'USB 存储设备记录' '能够正常读取' ("读取成功，共{0}条" -f $index) '通过'
-} catch { W ("错误`t无法读取 USBSTOR：{0}" -f $_.Exception.Message);S 'USB 存储设备记录' '能够正常读取' '读取失败' '异常' }
+    if($index -eq 0){W "-`t未发现 USB 存储设备记录"};S 'USB 存储设备记录' '清理后应为0条；历史记录需现场核查' $(if($index -eq 0){'未发现 USB 存储设备记录（0条）'}else{"读取成功，剩余$index 条"}) $(if($index -eq 0){'通过'}else{'需复核'})
+} catch { $usbReadError=$_.Exception.Message;W ("错误`t无法读取 USBSTOR：{0}" -f $usbReadError);S 'USB 存储设备记录' '清理后应为0条；历史记录需现场核查' '读取失败' '异常' }
 W ''
 
 function AddBrowserRow([string]$browser,[string]$check,[string]$scope,[string]$source,[string]$expected,[string]$actual,[string]$conclusion,[string]$evidence){
@@ -150,28 +153,35 @@ function AddBrowserInstallation([string]$browser,[bool]$installed){
     if($installed){AddBrowserRow $browser '安装状态' '本机' '程序文件/App Paths' '仅记录' '已安装' '已识别' '检测到浏览器程序或安装注册信息'}
     else{AddBrowserRow $browser '安装状态' '本机' '程序文件/App Paths' '仅记录' '未安装' '不适用' '未检测到浏览器程序或安装注册信息'}
 }
+$script:accountRows=@()
+function AddAccountRow([string]$browser,[string]$profile,[string]$website,[string]$account){
+    $script:accountRows+=New-Object PSObject -Property @{Browser=$browser;Profile=$profile;Website=$website;Account=$account}
+}
 function AddChromiumSavedPasswords([string]$browser,[string]$root,[string]$counter){
-    $files=@();if($root -and (Test-Path -LiteralPath $root)){$files=@(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue|Where-Object {$_.PSIsContainer -and ($_.Name -eq 'Default' -or $_.Name -like 'Profile *')}|ForEach-Object {Join-Path $_.FullName 'Login Data'}|Where-Object {Test-Path -LiteralPath $_})}
+    $files=@();if($root -and (Test-Path -LiteralPath $root)){$files=@(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue|Where-Object {$_.PSIsContainer -and $true}|ForEach-Object {Join-Path $_.FullName 'Login Data';Join-Path $_.FullName 'Login Data For Account'}|Where-Object {Test-Path -LiteralPath $_})}
     if($files.Count -eq 0){AddBrowserRow $browser '已保存密码' '当前用户' '密码库' '没有保存密码' '未发现保存密码（0条）' '通过' '未发现当前用户密码库';return}
     foreach($file in $files){
-        $profile=Split-Path (Split-Path $file -Parent) -Leaf
+        $profile=(Split-Path (Split-Path $file -Parent) -Leaf)+' / '+(Split-Path $file -Leaf)
         if(!$counter -or !(Test-Path -LiteralPath $counter)){AddBrowserRow $browser '已保存密码' $profile '密码库' '没有保存密码' '无法执行计数' '需复核' '同目录缺少可用的现场检查程序';continue}
-        $output=@(& $counter /count-chromium-logins $file 2>$null);$code=$LASTEXITCODE;$count=0L;$parsed=[long]::TryParse(($output -join '').Trim(),[ref]$count)
+        $previousEncoding=[Console]::OutputEncoding
+        try{[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);$output=@(& $counter /list-chromium-logins $file 2>$null);$code=$LASTEXITCODE;$decoded=ConvertFrom-Json -InputObject ($output -join '') -ErrorAction Stop;$records=@($decoded | Where-Object {$null -ne $_});$count=$records.Count;$parsed=$true
+            if($code -eq 0){foreach($record in $records){$website=[string]$record.website;$account=[string]$record.account;if(!$website){$website='未记录网站地址'};if(!$account){$account='未记录账号'};AddAccountRow $browser $profile $website $account}}
+        }catch{$code=6;$parsed=$false;$count=0}finally{[Console]::OutputEncoding=$previousEncoding}
         if($code -ne 0 -or !$parsed){AddBrowserRow $browser '已保存密码' $profile '密码库' '没有保存密码' '读取失败' '需复核' '密码库可能正被占用或格式不受支持'}
         elseif($count -eq 0){AddBrowserRow $browser '已保存密码' $profile '密码库' '没有保存密码' '未发现保存密码（0条）' '通过' '只统计记录数量，不读取或解密字段内容'}
-        else{AddBrowserRow $browser '已保存密码' $profile '密码库' '没有保存密码' ("发现保存密码（{0}条）" -f $count) '异常' '只统计记录数量，不读取或解密字段内容'}
+        else{AddBrowserRow $browser '已保存密码' $profile '密码库' '没有保存密码' ("发现保存密码（{0}条）" -f $count) '异常' '网站和账号见下方明细；不读取或解密密码内容'}
     }
 }
 function AddFirefoxSavedPasswords([string]$root){
     $files=@();if($root -and (Test-Path -LiteralPath $root)){$files=@(Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue|Where-Object {$_.PSIsContainer}|ForEach-Object {Join-Path $_.FullName 'logins.json'}|Where-Object {Test-Path -LiteralPath $_})}
     if($files.Count -eq 0){AddBrowserRow 'Mozilla Firefox' '已保存密码' '当前用户' '密码库' '没有保存密码' '未发现保存密码（0条）' '通过' '未发现当前用户密码库';return}
-    foreach($file in $files){$profile=Split-Path (Split-Path $file -Parent) -Leaf;try{$text=[IO.File]::ReadAllText($file);if($text -notmatch '"logins"\s*:\s*\['){throw '密码库格式无法识别'};$count=[regex]::Matches($text,'"encryptedPassword"\s*:').Count;if($count -eq 0){AddBrowserRow 'Mozilla Firefox' '已保存密码' $profile '密码库' '没有保存密码' '未发现保存密码（0条）' '通过' '只统计记录数量，不读取或解密字段内容'}else{AddBrowserRow 'Mozilla Firefox' '已保存密码' $profile '密码库' '没有保存密码' ("发现保存密码（{0}条）" -f $count) '异常' '只统计记录数量，不读取或解密字段内容'}}catch{AddBrowserRow 'Mozilla Firefox' '已保存密码' $profile '密码库' '没有保存密码' '读取失败' '需复核' $_.Exception.Message}}
+    foreach($file in $files){$profile=Split-Path (Split-Path $file -Parent) -Leaf;try{$text=[IO.File]::ReadAllText($file);if($text -notmatch '"logins"\s*:\s*\['){throw '密码库格式无法识别'};$entries=@(($text|ConvertFrom-Json -ErrorAction Stop).logins);$count=$entries.Count;foreach($entry in $entries){AddAccountRow 'Mozilla Firefox' $profile ([string]$entry.hostname) '账号已加密，请在 Firefox 密码管理中查看'};if($count -eq 0){AddBrowserRow 'Mozilla Firefox' '已保存密码' $profile '密码库' '没有保存密码' '未发现保存密码（0条）' '通过' '只统计记录数量，不读取或解密字段内容'}else{AddBrowserRow 'Mozilla Firefox' '已保存密码' $profile '密码库' '没有保存密码' ("发现保存密码（{0}条）" -f $count) '异常' '只统计记录数量，不读取或解密字段内容'}}catch{AddBrowserRow 'Mozilla Firefox' '已保存密码' $profile '密码库' '没有保存密码' '读取失败' '需复核' $_.Exception.Message}}
 }
 function AddInternetExplorerSavedPasswords {
     try{
         $registryCount=0;$key='Registry::HKEY_CURRENT_USER\Software\Microsoft\Internet Explorer\IntelliForms\Storage2';if(Test-Path -LiteralPath $key){$registryCount=@((Get-Item -LiteralPath $key -ErrorAction Stop).GetValueNames()|Where-Object {$_}).Count}
         $winInetCount=0;$cmdkey=Join-Path $env:SystemRoot 'System32\cmdkey.exe';if(Test-Path -LiteralPath $cmdkey){$listing=(& $cmdkey /list 2>$null) -join "`n";$winInetCount=[regex]::Matches($listing,'Microsoft_WinInet_','IgnoreCase').Count}
-        if($registryCount -gt 0 -or $winInetCount -gt 0){AddBrowserRow 'Internet Explorer' '已保存密码' '当前用户' 'IE/WinInet 密码存储' '没有保存密码' '发现保存密码记录' '异常' '仅检查密码记录索引，不读取或解密内容'}
+        if($registryCount -gt 0 -or $winInetCount -gt 0){AddAccountRow 'Internet Explorer' '当前用户' '旧版索引无法还原网站' '请在浏览器密码管理中查看';AddBrowserRow 'Internet Explorer' '已保存密码' '当前用户' 'IE/WinInet 密码存储' '没有保存密码' '发现保存密码记录' '异常' '仅检查密码记录索引，不读取或解密内容'}
         else{AddBrowserRow 'Internet Explorer' '已保存密码' '当前用户' 'IE/WinInet 密码存储' '没有保存密码' '未发现保存密码（0条）' '通过' '未发现 IE 或 WinInet 密码记录索引'}
     }catch{AddBrowserRow 'Internet Explorer' '已保存密码' '当前用户' 'IE/WinInet 密码存储' '没有保存密码' '读取失败' '需复核' $_.Exception.Message}
 }
@@ -181,7 +191,7 @@ if($Interactive){
     W '[9] 浏览器已保存密码检查'
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent();$isSystem=$identity.IsSystem
     if($isSystem){AddBrowserRow '运行身份' '检查身份' 'SYSTEM' '运行身份' '检查当前登录用户' 'SYSTEM 无法代表当前登录用户' '需复核' '系统加固项仍会正常检查；浏览器密码请由用户本人运行现场检查版复核'}
-    if(!$InspectorPath){$preferred=$(if([Environment]::Is64BitOperatingSystem){'remediator-inspector-x64.exe'}else{'remediator-inspector.exe'});$candidate=Join-Path $base $preferred;if(Test-Path -LiteralPath $candidate){$InspectorPath=$candidate}else{$candidate=Join-Path $base 'remediator-inspector.exe';if(Test-Path -LiteralPath $candidate){$InspectorPath=$candidate}}}
+    if(!$InspectorPath){$preferred=$(if([Environment]::Is64BitOperatingSystem){'安全检查-64位.exe'}else{'安全检查-32位.exe'});$candidate=Join-Path $base $preferred;if(Test-Path -LiteralPath $candidate){$InspectorPath=$candidate}else{$candidate=Join-Path $base '安全检查-32位.exe';if(Test-Path -LiteralPath $candidate){$InspectorPath=$candidate}}}
 
     $edgePaths=@($(if($env:ProgramFiles){Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'}),$(if(${env:ProgramFiles(x86)}){Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'}),$(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe'}));$edgeInstalled=TestBrowserInstalled 'msedge.exe' $edgePaths;AddBrowserInstallation 'Microsoft Edge' $edgeInstalled
     if($edgeInstalled){if($isSystem){AddBrowserRow 'Microsoft Edge' '已保存密码' '登录用户' '运行身份' '没有保存密码' 'SYSTEM 无法检查登录用户' '需复核' '请由用户本人运行现场检查版'}else{$edgeRoot=$(if($env:LOCALAPPDATA){Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\User Data'}else{''});AddChromiumSavedPasswords 'Microsoft Edge' $edgeRoot $InspectorPath}}
@@ -202,6 +212,12 @@ if($Interactive){
     W ("浏览器安装：已安装{0}个，未安装{1}个；保存密码检查：通过{2}项，异常{3}项，需复核{4}项" -f $browserInstalledCount,$browserNotInstalledCount,$browserPassed,$browserFailed,$browserReview);W ''
 }
 
+$wirelessRows=@()
+try{
+    . (Join-Path $base 'wireless-remediator.ps1')
+    $wirelessRows=@(Get-WirelessInspection)
+    foreach($entry in $wirelessRows){S $entry.Item $entry.Expected $entry.Actual $entry.Conclusion}
+}catch{S '无线网络检查' '无已保存 Wi-Fi 配置且无线网卡禁用' ('检查失败：'+$_.Exception.Message) '需复核'}
 $passed=@($summary|Where-Object {$_.Conclusion -eq '通过'}).Count;$failed=@($summary|Where-Object {$_.Conclusion -eq '异常'}).Count;$review=@($summary|Where-Object {$_.Conclusion -eq '需复核'}).Count
 $finished=Get-Date
 W ("验证结束：{0}" -f $finished)
@@ -233,16 +249,29 @@ if($networkRows.Count -eq 0){[void]$html.AppendLine('<tr><td colspan="7">未发�
 
 [void]$html.AppendLine('<div class="card"><h2>五、USB 存储设备注册表记录逐项明细</h2><div class="scroll"><table><thead><tr><th>序号</th><th>设备类型</th><th>实例 ID/序列号</th><th>友好名称</th><th>设备描述</th><th>厂商</th></tr></thead><tbody>')
 foreach($row in $usbRows){[void]$html.AppendLine(('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td></tr>' -f $row.Index,(EncodeHtml $row.Type),(EncodeHtml $row.Instance),(EncodeHtml $row.Name),(EncodeHtml $row.Description),(EncodeHtml $row.Manufacturer)))}
-if($usbRows.Count -eq 0){[void]$html.AppendLine('<tr><td colspan="6">未发现 USB 存储设备记录</td></tr>')}
+if($usbReadError){[void]$html.AppendLine(('<tr><td colspan="6" class="fail">USB 记录读取失败，无法确定是否为空：{0}</td></tr>' -f (EncodeHtml $usbReadError)))}
+elseif($usbRows.Count -eq 0){[void]$html.AppendLine('<tr><td colspan="6">未发现 USB 存储设备记录（0条）</td></tr>')}
 [void]$html.AppendLine('</tbody></table></div></div>')
 
 if($Interactive){
-    [void]$html.AppendLine('<div class="card"><h2>六、浏览器已保存密码逐项明细</h2><p class="note">隐私说明：本功能只判断是否存在已保存密码并统计条目数量，不解密、不显示、不导出密码、账号、网站、Cookie 或登录内容。没有保存密码为“通过”；存在保存密码为“异常”；未安装浏览器为“不适用”。</p><div class="scroll"><table><thead><tr><th>序号</th><th>浏览器</th><th>检查项目</th><th>范围/配置文件</th><th>来源</th><th>预期结果</th><th>实际结果</th><th>结论</th><th>判断依据</th></tr></thead><tbody>')
+    [void]$html.AppendLine('<div class="card"><h2>六、浏览器已保存密码逐项明细</h2><p class="note">隐私说明：本功能只判断是否存在已保存密码并统计条目数量，列出网站地址和保存账号，不解密、不显示、不导出密码及 Cookie。没有保存密码为“通过”；存在保存密码为“异常”；未安装浏览器为“不适用”。</p><div class="scroll"><table><thead><tr><th>序号</th><th>浏览器</th><th>检查项目</th><th>范围/配置文件</th><th>来源</th><th>预期结果</th><th>实际结果</th><th>结论</th><th>判断依据</th></tr></thead><tbody>')
     $i=0;foreach($row in $browserRows){$i++;[void]$html.AppendLine(('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td><td>{5}</td><td>{6}</td><td class="{7}">{8}</td><td>{9}</td></tr>' -f $i,(EncodeHtml $row.Browser),(EncodeHtml $row.Check),(EncodeHtml $row.Scope),(EncodeHtml $row.Source),(EncodeHtml $row.Expected),(EncodeHtml $row.Actual),(C $row.Conclusion),(EncodeHtml $row.Conclusion),(EncodeHtml $row.Evidence)))}
     [void]$html.AppendLine('</tbody></table></div></div>')
 }
 
+if($Interactive){
+    [void]$html.AppendLine('<div class="card"><h2>保存密码的网站与账号</h2><p class="note">本表包含账号信息，请按内部检查资料保管。Firefox 加密账号和 IE 旧索引无法直接读取时会明确说明。</p><div class="scroll"><table><thead><tr><th>序号</th><th>浏览器</th><th>用户配置</th><th>网站地址</th><th>保存的账号</th></tr></thead><tbody>')
+    $i=0;foreach($row in $accountRows){$i++;[void]$html.AppendLine(('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td>{4}</td></tr>' -f $i,(EncodeHtml $row.Browser),(EncodeHtml $row.Profile),(EncodeHtml $row.Website),(EncodeHtml $row.Account)))}
+    if($accountRows.Count -eq 0){[void]$html.AppendLine('<tr><td colspan="5">没有可列出的网站与账号；是否通过请以浏览器检查结论为准，读取失败或 SYSTEM 身份仍需复核。</td></tr>')}
+    [void]$html.AppendLine('</tbody></table></div></div>')
+}
 [void]$html.AppendLine(('<div class="card"><h2>{0}、原始检查信息</h2><p class="small">用于管理员进一步排查，普通使用者优先查看前面的汇总和逐项明细。</p><pre>{1}</pre></div>' -f $(if($Interactive){'七'}else{'六'}),(EncodeHtml ($details -join "`r`n"))))
+[void]$html.AppendLine('<div class="card"><h2>无线网络配置与网卡复检</h2><p class="note">Wi-Fi 配置与 NetworkList 历史分开检查。历史按 NameType 分类：71 为无线，6 为有线，其余或缺失为未知；不按名称猜测。清理版仅删除明确无线历史，有线保留，未知需人工确认。未连接不等于禁用。</p>')
+if(Get-Command Get-NetworkHistoryManualHelp -ErrorAction SilentlyContinue){[void]$html.AppendLine(('<p class="note">{0}</p>' -f (EncodeHtml (Get-NetworkHistoryManualHelp))))}
+[void]$html.AppendLine('<table><tr><th>检查项目</th><th>预期</th><th>实际</th><th>结论</th></tr>')
+foreach($entry in $wirelessRows){[void]$html.AppendLine(('<tr><td>{0}</td><td>{1}</td><td>{2}</td><td class="{3}">{4}</td></tr>' -f (EncodeHtml $entry.Item),(EncodeHtml $entry.Expected),(EncodeHtml $entry.Actual),(C $entry.Conclusion),(EncodeHtml $entry.Conclusion)))}
+if($wirelessRows.Count -eq 0){[void]$html.AppendLine('<tr><td colspan="4">无线检查未完成，请查看汇总失败原因。</td></tr>')}
+[void]$html.AppendLine('</table></div>')
 [void]$html.AppendLine('</div></body></html>')
 $utf8=New-Object System.Text.UTF8Encoding($true)
 [System.IO.File]::WriteAllText($report,$html.ToString(),$utf8)

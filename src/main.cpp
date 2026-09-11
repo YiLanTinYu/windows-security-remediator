@@ -33,7 +33,7 @@ std::wstring Err(DWORD e=GetLastError()) { wchar_t b[32]; _snwprintf_s(b,_counto
 std::wstring Join(const std::wstring&a,const std::wstring&b);
 void Log(const std::wstring& s) { if(logFile.is_open()) { if(s==L"completed") { logFile << L"结果：执行成功，系统配置已按规则处理。\n"; std::wofstream r(Join(logDir,L"result.txt"),std::ios::trunc); r<<L"执行成功\n退出码："<<finalExitCode<<L"\n模式："<<finalMode<<L"\n修改内容："<<(changed?L"有":L"无")<<L"\n"; } else if(s==L"incomplete") { logFile << L"结果：执行未完成，请查看退出码和失败项。\n"; std::wofstream r(Join(logDir,L"result.txt"),std::ios::trunc); r<<L"执行未完成\n退出码："<<finalExitCode<<L"\n模式："<<finalMode<<L"\n请检查权限和日志中的失败项。\n"; } else logFile << s << L"\n"; } }
 void (*const WriteLogFn)(const std::wstring&)=Log;
-void DispatchLog(const std::wstring& s){if(s==L"SecurityRemediator started")WriteLogFn(L"SecurityRemediator version 1.2.4, author: YiLanTingYu, started");else WriteLogFn(s);}
+void DispatchLog(const std::wstring& s){if(s==L"SecurityRemediator started")WriteLogFn(L"SecurityRemediator version 1.2.5, author: YiLanTingYu, started");else WriteLogFn(s);}
 #define Log(s) DispatchLog(s)
 std::wstring Join(const std::wstring&a,const std::wstring&b){return a+(a.empty()||a.back()==L'\\'?L"":L"\\")+b;}
 std::wstring ExeDir(){wchar_t b[MAX_PATH]{};DWORD n=GetModuleFileNameW(nullptr,b,_countof(b));std::wstring p(b,n);size_t i=p.find_last_of(L"\\/");return i==std::wstring::npos?L".":p.substr(0,i);}
@@ -47,9 +47,9 @@ bool GenerateHtmlReport(){
   wchar_t systemDirectory[MAX_PATH]{};if(!GetSystemDirectoryW(systemDirectory,_countof(systemDirectory)))return false;
   const std::wstring powershell=Join(systemDirectory,L"WindowsPowerShell\\v1.0\\powershell.exe");
 #ifdef _WIN64
-  const std::wstring inspector=Join(directory,L"remediator-inspector-x64.exe");
+  const std::wstring inspector=Join(directory,L"安全检查-64位.exe");
 #else
-  const std::wstring inspector=Join(directory,L"remediator-inspector.exe");
+  const std::wstring inspector=Join(directory,L"安全检查-32位.exe");
 #endif
   std::wstring command=Quote(powershell)+L" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "+Quote(script)+L" -Interactive -ExitWithStatus";
   if(GetFileAttributesW(inspector.c_str())!=INVALID_FILE_ATTRIBUTES)command+=L" -InspectorPath "+Quote(inspector);

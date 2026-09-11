@@ -3,15 +3,30 @@
 /build-*/
 /.vs/
 /out/
+/delivery/
+/dist/
+/PROJECT_CONTEXT.md
+*.exe
+*.pdb
+*.obj
+CMakeCache.txt
+CMakeFiles/
 
 # Test and runtime output
 /testlogs/
 /testlogs*/
 *.log
 verification-report.html
+verification-report_*.html
+verification-report_*.json
+cleanup-report_*.html
+cleanup-report_*.json
+upload-status.json
+security-issues-summary.xlsx
 last-result.json
 result.txt
 backup.state
+backup-v2.state
 
 # Stale local delivery archives
 /dist/*.zip

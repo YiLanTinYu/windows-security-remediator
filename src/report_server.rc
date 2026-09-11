@@ -4,8 +4,8 @@
 1 ICON "remediator.ico"
 
 1 VERSIONINFO
- FILEVERSION 1,2,5,0
- PRODUCTVERSION 1,2,5,0
+ FILEVERSION 1,3,0,0
+ PRODUCTVERSION 1,3,0,0
  FILEFLAGSMASK 0x3fL
  FILEOS 0x40004L
  FILETYPE 0x1L
@@ -13,13 +13,13 @@ BEGIN
   BLOCK "StringFileInfo" BEGIN
     BLOCK "080404b0" BEGIN
       VALUE "CompanyName", "倚栏听雨\0"
-      VALUE "FileDescription", "Windows 高危端口静默修复程序\0"
-      VALUE "FileVersion", "1.2.5.0\0"
-      VALUE "InternalName", "SecurityRemediator\0"
+      VALUE "FileDescription", "终端安全检查报告接收与管理服务\0"
+      VALUE "FileVersion", "1.3.0.0\0"
+      VALUE "InternalName", "SecurityInspectionReportServer\0"
       VALUE "LegalCopyright", "Copyright (C) 2026 倚栏听雨\0"
-      VALUE "OriginalFilename", "remediator.exe\0"
-      VALUE "ProductName", "Security Remediator\0"
-      VALUE "ProductVersion", "1.2.5.0\0"
+      VALUE "OriginalFilename", "检查报告服务端.exe\0"
+      VALUE "ProductName", "终端安全检查与报告系统\0"
+      VALUE "ProductVersion", "1.3.0.0\0"
     END
   END
   BLOCK "VarFileInfo" BEGIN
