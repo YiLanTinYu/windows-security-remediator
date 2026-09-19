@@ -25,11 +25,16 @@ try {
 {"schema":1,"computer":"PC-PASS","ip":"10.0.0.2","mac":"AA-BB-CC-DD-EE-02","finished":"2026-09-10 12:00:00","passed":1,"failed":0,"review":0,"summary":[{"item":"Server service","expected":"stopped","actual":"stopped","conclusion":"pass"}],"details":[]}
 '@
   Set-Content -LiteralPath (Join-Path $root 'unrelated.json') -Value '{"ip":"203.0.113.1"}' -Encoding UTF8
+  Set-Content -LiteralPath (Join-Path $root '人员对应表.csv') -Value @'
+持有人,组织机构,操作系统,IP,MAC
+测试人员甲,信息技术部,Windows 10,10.0.0.1,AA-BB-CC-DD-EE-01
+测试人员乙,财务部,Windows 11,10.0.0.2,AA-BB-CC-DD-EE-02
+'@ -Encoding UTF8
 
-  & $exe | Out-Null
+  & $exe (Join-Path $root '人员对应表.csv') | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Unexpected exit code: $LASTEXITCODE" }
-  $xlsx = Join-Path $root 'security-issues-summary.xlsx'
-  if (-not (Test-Path -LiteralPath $xlsx)) { throw 'Missing security-issues-summary.xlsx' }
+  $xlsx = Join-Path $root 'person-security-issues-summary.xlsx'
+  if (-not (Test-Path -LiteralPath $xlsx)) { throw 'Missing person-security-issues-summary.xlsx' }
 
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   $zip = [System.IO.Compression.ZipFile]::OpenRead($xlsx)
@@ -50,20 +55,33 @@ try {
   if (($xml | Select-String -Pattern '>10\.0\.0\.2</t>' -AllMatches).Matches.Count -ne 1) {
     throw 'Compliant IP row is missing'
   }
-  foreach ($expected in @('PC-NEW','External connectivity')) {
+  foreach ($expected in @('PC-NEW','External connectivity','测试人员甲','测试人员乙','信息技术部','财务部','组织机构','风险等级','高危','正常','处理建议')) {
     if ($xml -notmatch [regex]::Escape($expected)) { throw "Missing workbook content: $expected" }
   }
+  if ($xml -match '原表序号') { throw 'Original sequence column must not be exported' }
   if ($xml -match 'OLD-ISSUE-MUST-NOT-APPEAR') { throw 'Issue from older report was included' }
   if ($xml -notmatch '<autoFilter ' -or $xml -notmatch 'state="frozen"' -or $stylesXml -notmatch 'wrapText="1"') {
     throw 'Workbook is missing filter, frozen headers, or wrapped issue cells'
   }
-  foreach ($cell in @('B10','B11','B12','B13','B14')) {
-    if ($xml -notmatch ('<c r="' + $cell + '"[^>]*><v>[12]</v></c>')) {
-      throw "Missing or invalid terminal summary count in $cell"
-    }
-  }
   if (-not (Test-Path -LiteralPath (Join-Path $root 'issue-summary.log'))) {
     throw 'Missing fixed summary log'
+  }
+
+  Set-Content -LiteralPath (Join-Path $root '人员对应表.csv') -Value @'
+持有人,操作系统,IP,MAC
+测试人员甲,Windows 10,10.0.0.1,AA-BB-CC-DD-EE-01
+测试人员乙,Windows 11,10.0.0.2,AA-BB-CC-DD-EE-02
+'@ -Encoding UTF8
+  & $exe (Join-Path $root '人员对应表.csv') | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Unexpected exit code without organization column: $LASTEXITCODE" }
+  $zip = [System.IO.Compression.ZipFile]::OpenRead($xlsx)
+  try {
+    $entry = $zip.GetEntry('xl/worksheets/sheet1.xml')
+    $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
+    try { $withoutOrganizationXml = $reader.ReadToEnd() } finally { $reader.Dispose() }
+  } finally { $zip.Dispose() }
+  if ($withoutOrganizationXml -notmatch '组织机构' -or $withoutOrganizationXml -match '信息技术部|财务部') {
+    throw 'Optional organization column was not handled correctly'
   }
 
   Write-Output 'PASS: newest report per IP exported as one wrapped Excel row'

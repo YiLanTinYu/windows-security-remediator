@@ -6,6 +6,7 @@ namespace sr {
 struct FirewallRepairResult {
   bool success = false;
   bool changed = false;
+  bool profilesPreserved = false;
   std::wstring detail;
 };
 
@@ -28,7 +29,8 @@ struct FirewallState {
   std::vector<FirewallRuleState> rules;
 };
 
-FirewallRepairResult RepairFirewallRules();
+FirewallRepairResult RepairFirewallRules(
+    bool preserveDisabledProfiles = false);
 bool CaptureFirewallState(FirewallState &state);
 bool RestoreFirewallState(const FirewallState &state, std::wstring &detail);
 }

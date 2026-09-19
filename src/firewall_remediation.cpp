@@ -290,7 +290,7 @@ bool EnsureRule(INetFwRules *rules, const RuleSpec &spec, long profiles,
 }
 } // namespace
 
-FirewallRepairResult RepairFirewallRules() {
+FirewallRepairResult RepairFirewallRules(bool preserveDisabledProfiles) {
   FirewallRepairResult result;
   if (!Elevated()) {
     result.detail = L"需要 SYSTEM 或已提升的管理员权限";
@@ -321,11 +321,14 @@ FirewallRepairResult RepairFirewallRules() {
             static_cast<NET_FW_PROFILE_TYPE2>(profile), &enabled))) {
       ok = false;
     } else if (enabled != VARIANT_TRUE) {
-      if (SUCCEEDED(policy->put_FirewallEnabled(
-              static_cast<NET_FW_PROFILE_TYPE2>(profile), VARIANT_TRUE)))
+      if (preserveDisabledProfiles) {
+        result.profilesPreserved = true;
+      } else if (SUCCEEDED(policy->put_FirewallEnabled(
+                     static_cast<NET_FW_PROFILE_TYPE2>(profile), VARIANT_TRUE))) {
         result.changed = true;
-      else
+      } else {
         ok = false;
+      }
     }
   }
   INetFwRules *rules = nullptr;
@@ -341,8 +344,10 @@ FirewallRepairResult RepairFirewallRules() {
   if (SUCCEEDED(initialized))
     CoUninitialize();
   result.success = ok;
-  result.detail = ok ? (result.changed ? L"防火墙规则已修复并复检"
-                                       : L"防火墙规则已符合要求")
+  result.detail = ok ? (result.profilesPreserved
+                            ? L"FTP接收证据不完整；保留原本关闭的防火墙配置文件，未开放未知端口，10条入站阻断规则已维护"
+                            : result.changed ? L"防火墙规则已修复并复检"
+                                             : L"防火墙规则已符合要求")
                      : L"至少一项防火墙规则修复失败";
   return result;
 }

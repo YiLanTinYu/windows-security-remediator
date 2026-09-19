@@ -77,5 +77,17 @@ int wmain() {
     std::wcerr << L"remediated finding failure was not detected\n";
     return 1;
   }
+  compliant.summary[0].verdict = sr::Verdict::Pass;
+  for (auto &row : compliant.summary)
+    if (row.item == L"Windows 防火墙配置文件")
+      row.verdict = sr::Verdict::Fail;
+  compliant.summary.push_back(
+      {L"扫描接收兼容性", L"",
+       L"检测到FTP接收服务，但控制端口、被动端口范围、允许来源或规则配置文件不完整",
+       sr::Verdict::Review});
+  if (!sr::RemediationScopeCompliant(compliant)) {
+    std::wcerr << L"accepted FTP preservation policy incorrectly failed remediation scope\n";
+    return 1;
+  }
   return 0;
 }

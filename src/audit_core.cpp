@@ -1,5 +1,6 @@
 #define _WIN32_WINNT 0x0601
 #include "audit_core.h"
+#include "scan_compatibility.h"
 #include "win7_fs.h"
 #include <windows.h>
 #include <ws2tcpip.h>
@@ -606,6 +607,20 @@ void ListenerCheck(AuditResult &r) {
   r.details.push_back(std::move(details));
 }
 
+void ScanCompatibilityCheck(AuditResult &r) {
+  const ScanCompatibilityAssessment assessment = InspectScanCompatibility();
+  Add(r, L"扫描接收兼容性",
+      L"FTP接收端口与来源范围明确；SMB扫描冲突需授权处理",
+      assessment.actual,
+      assessment.review ? Verdict::Review : Verdict::Pass);
+  DetailTable details{L"扫描接收兼容性明细",
+                      {L"类别", L"对象", L"证据", L"结论"}, {}};
+  for (const auto &detail : assessment.details)
+    details.rows.push_back({detail.category, detail.name, detail.value,
+                            detail.conclusion});
+  r.details.push_back(std::move(details));
+}
+
 std::wstring RegTime(HKEY key, const wchar_t *name) {
   DWORD type = 0, size = 0;
   if (RegQueryValueExW(key, name, nullptr, &type, nullptr, &size) !=
@@ -1152,6 +1167,7 @@ AuditResult RunAudit() {
   stage("firewall",[&]{FirewallCheck(r);});
   stage("netbios",[&]{NetbiosCheck(r);});
   stage("listeners",[&]{ListenerCheck(r);});
+  stage("scan-compatibility",[&]{ScanCompatibilityCheck(r);});
   stage("network-history",[&]{NetworkHistory(r);});
   stage("usb",[&]{UsbHistory(r);});
   stage("browser",[&]{BrowserAudit(r);});

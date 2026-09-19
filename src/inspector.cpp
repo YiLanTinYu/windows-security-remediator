@@ -57,7 +57,7 @@ int wmain(int argc,wchar_t** argv){
     const bool rollback=HasArg(argc,argv,L"/rollback");
     SetConsoleTitleW(L"终端安全现场检查修复工具");
     Print(L"============================================================\r\n");
-    Print(L"  终端安全现场检查修复工具 2.0.1\r\n");
+    Print(L"  终端安全现场检查修复工具 2.0.2\r\n");
     Print(L"  作者：倚栏听雨\r\n");
     Print(L"============================================================\r\n");
     Print(L"本程序先检查；只有输入小写 yes 后才修复系统安全配置。\r\n");

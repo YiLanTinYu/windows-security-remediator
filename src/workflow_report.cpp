@@ -159,7 +159,7 @@ ReportFiles WriteWorkflowReports(const AuditResult &before,
 
 bool RemediationScopeCompliant(const AuditResult &result) {
   bool server = false, terminal = false, rdp = false, profiles = false,
-       netbios = false;
+       netbios = false, ftpProfilesPreserved = false;
   int firewallRules = 0;
   for (const auto &row : result.summary) {
     const bool pass = row.verdict == Verdict::Pass;
@@ -168,8 +168,13 @@ bool RemediationScopeCompliant(const AuditResult &result) {
     else if (row.item == L"远程桌面连接策略") rdp = pass;
     else if (row.item == L"Windows 防火墙配置文件") profiles = pass;
     else if (row.item == L"NetBIOS 配置汇总") netbios = pass;
+    else if (row.item == L"扫描接收兼容性" &&
+             row.verdict == Verdict::Review &&
+             row.actual.find(L"检测到FTP接收服务，但") != std::wstring::npos)
+      ftpProfilesPreserved = true;
     else if (row.item.rfind(L"防火墙规则 ", 0) == 0 && pass) ++firewallRules;
   }
-  return server && terminal && rdp && profiles && netbios && firewallRules == 10;
+  return server && terminal && rdp && (profiles || ftpProfilesPreserved) &&
+         netbios && firewallRules == 10;
 }
 }

@@ -1,6 +1,7 @@
 #define _WIN32_WINNT 0x0601
 #include "system_remediation.h"
 #include "firewall_remediation.h"
+#include "scan_compatibility.h"
 #include <windows.h>
 #include <shlobj.h>
 #include <winsvc.h>
@@ -384,8 +385,17 @@ RemediationResult ApplySystemRemediation() {
                      backupOk, backupCreated});
   if (!backupOk) return result;
 
-  const FirewallRepairResult firewall = RepairFirewallRules();
-  AddAction(result, {L"Windows 防火墙", L"启用全部配置文件并维护10条入站阻断规则",
+  const ScanCompatibilityAssessment scanCompatibility =
+      InspectScanCompatibility();
+  AddAction(result,
+            {L"扫描接收兼容性", L"识别FTP接收与SMB共享冲突",
+             scanCompatibility.actual, true, false});
+  const FirewallRepairResult firewall = RepairFirewallRules(
+      scanCompatibility.preserveDisabledFirewallProfiles);
+  AddAction(result, {L"Windows 防火墙",
+                     scanCompatibility.preserveDisabledFirewallProfiles
+                         ? L"保留原本关闭的配置文件并维护10条入站阻断规则"
+                         : L"启用全部配置文件并维护10条入站阻断规则",
                      firewall.detail, firewall.success, firewall.changed});
   AddAction(result, ServiceAction(L"LanmanServer", L"Server 文件共享服务"));
   AddAction(result, ServiceAction(L"TermService", L"远程桌面服务"));

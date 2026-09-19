@@ -4,8 +4,8 @@
 1 ICON "remediator.ico"
 
 1 VERSIONINFO
- FILEVERSION 2,0,1,0
- PRODUCTVERSION 2,0,1,0
+ FILEVERSION 2,0,2,0
+ PRODUCTVERSION 2,0,2,0
  FILEFLAGSMASK 0x3fL
  FILEOS 0x40004L
  FILETYPE 0x1L
@@ -14,12 +14,12 @@ BEGIN
     BLOCK "080404b0" BEGIN
       VALUE "CompanyName", "倚栏听雨\0"
       VALUE "FileDescription", "Windows 现场安全检查与修复工具\0"
-      VALUE "FileVersion", "2.0.1.0\0"
+      VALUE "FileVersion", "2.0.2.0\0"
       VALUE "InternalName", "OnsiteCheckRepair\0"
       VALUE "LegalCopyright", "Copyright (C) 2026 倚栏听雨\0"
       VALUE "OriginalFilename", "onsite-check-repair.exe\0"
       VALUE "ProductName", "终端安全现场检查修复工具\0"
-      VALUE "ProductVersion", "2.0.1.0\0"
+      VALUE "ProductVersion", "2.0.2.0\0"
     END
   END
   BLOCK "VarFileInfo" BEGIN
