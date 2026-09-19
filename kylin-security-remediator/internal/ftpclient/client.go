@@ -115,14 +115,18 @@ func (c *Client) upload(ctx context.Context, remoteName string, source io.Reader
 		return fmt.Errorf("设置FTP二进制模式: %w", err)
 	}
 	if expectedSize >= 0 {
-		if _, _, err := commandExpected(reader, writer, 200, "SITE SHA256 "+expectedHash); err != nil {
+		code, message, err := command(reader, writer, "SITE SHA256 "+expectedHash)
+		if err != nil {
 			return fmt.Errorf("声明FTP文件校验和: %w", err)
 		}
-		code, message, err := command(reader, writer, "ALLO "+strconv.FormatInt(expectedSize, 10))
+		if code != 200 && code != 500 && code != 502 && code != 504 {
+			return fmt.Errorf("FTP服务器拒绝文件校验和声明，响应码%d：%s", code, message)
+		}
+		code, message, err = command(reader, writer, "ALLO "+strconv.FormatInt(expectedSize, 10))
 		if err != nil {
 			return fmt.Errorf("声明FTP文件大小: %w", err)
 		}
-		if code != 200 && code != 202 {
+		if code != 200 && code != 202 && code != 500 && code != 502 && code != 504 {
 			return fmt.Errorf("FTP服务器拒绝文件大小声明，响应码%d：%s", code, message)
 		}
 	}

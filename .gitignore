@@ -6,9 +6,14 @@
 /delivery/
 /dist/
 /PROJECT_CONTEXT.md
+/.gocache/
+/.gotmp/
 *.exe
 *.pdb
 *.obj
+*.zip
+*.7z
+*.rar
 CMakeCache.txt
 CMakeFiles/
 
@@ -19,14 +24,30 @@ CMakeFiles/
 verification-report.html
 verification-report_*.html
 verification-report_*.json
+kylin-report_*.html
+kylin-report_*.json
 cleanup-report_*.html
 cleanup-report_*.json
 upload-status.json
+upload-status_*.json
 security-issues-summary.xlsx
+person-security-issues-summary.xlsx
 last-result.json
 result.txt
 backup.state
 backup-v2.state
+
+# Local deployment configuration and secrets
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+upload.key
+server-cert-sha256.txt
+FTP-Receiver.conf
+Run-FTP.sh
 
 # Stale local delivery archives
 /dist/*.zip

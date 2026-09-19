@@ -68,11 +68,13 @@ func run(ctx context.Context, args []string, runner Runner, now func() time.Time
 	stamp := now()
 	result.GeneratedAt = stamp.Format("2006-01-02 15:04:05")
 	timestamp := stamp.Format("20060102-150405") + fmt.Sprintf("-%03d", stamp.Nanosecond()/int(time.Millisecond))
-	prefix := "kylin-report_"
+	prefix := "verification-report_"
 	if mode == core.ModeClean {
 		prefix = "kylin-cleanup-report_"
 	}
-	base := prefix + safeName(result.Identity.IP) + "_" + safeName(result.Identity.MAC) + "_" + timestamp
+	identityStem := safeName(result.Identity.IP) + "_" + safeName(result.Identity.MAC) + "_" + timestamp
+	base := prefix + identityStem
+	statusPath := filepath.Join(*output, "upload-status_"+identityStem+".json")
 	jsonPath := filepath.Join(*output, base+".json")
 	htmlPath := filepath.Join(*output, base+".html")
 	jsonFile, err := os.Create(jsonPath)
@@ -98,14 +100,14 @@ func run(ctx context.Context, args []string, runner Runner, now func() time.Time
 	}
 	if uploader != nil {
 		if err := uploader.UploadFile(ctx, jsonPath, filepath.Base(jsonPath)); err != nil {
-			_ = writeUploadStatus(filepath.Join(*output, base+".upload-status.json"), "failed", err)
+			_ = writeUploadStatus(statusPath, "failed", err)
 			return 3
 		}
 		if err := uploader.UploadFile(ctx, htmlPath, filepath.Base(htmlPath)); err != nil {
-			_ = writeUploadStatus(filepath.Join(*output, base+".upload-status.json"), "failed", err)
+			_ = writeUploadStatus(statusPath, "failed", err)
 			return 3
 		}
-		if err := writeUploadStatus(filepath.Join(*output, base+".upload-status.json"), "uploaded", nil); err != nil {
+		if err := writeUploadStatus(statusPath, "uploaded", nil); err != nil {
 			return 3
 		}
 	}

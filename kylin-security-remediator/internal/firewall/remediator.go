@@ -26,6 +26,9 @@ func (r *Remediator) Evaluate(ctx context.Context, mode core.Mode) ([]core.Check
 	if err != nil {
 		return nil, nil, fmt.Errorf("读取 iptables: %w", err)
 	}
+	if covered, missing, managed := cemsCoverage(before); managed {
+		return []core.Check{cemsFirewallCheck(covered, missing)}, nil, nil
+	}
 	plan, err := BuildPlan(before)
 	if err != nil {
 		return nil, nil, err
@@ -62,6 +65,50 @@ func (r *Remediator) Evaluate(ctx context.Context, mode core.Mode) ([]core.Check
 		return []core.Check{firewallOverrideCheck(remaining)}, actions, nil
 	}
 	return []core.Check{firewallCheck(len(remaining) == 0, remaining)}, actions, nil
+}
+
+func cemsFirewallCheck(covered, missing []portRule) core.Check {
+	check := core.Check{
+		Category:   "防火墙",
+		Item:       "高危端口入站阻断规则",
+		Expected:   "10项高危端口均由CEMS通用入站策略阻断",
+		Actual:     fmt.Sprintf("CEMS已覆盖%d项，管理端待补%d项；本程序未修改本机iptables规则", len(covered), len(missing)),
+		Conclusion: core.ConclusionFail,
+		Details: []core.Detail{
+			{Name: "数据来源", Value: "iptables-save（filter表）"},
+			{Name: "管理方式", Value: "检测到CEMS接管INPUT；仅审计，不与CEMS争抢规则顺序"},
+			{Name: "审计范围", Value: "按CEMS_COMMON_INPUT通用策略判断；CEMS_SUPIN/OFFNET等来源例外仍由CEMS管理，须以外部端口探测最终验收"},
+			{Name: "CEMS已覆盖", Value: formatPortRules(covered)},
+		},
+	}
+	if len(missing) == 0 {
+		check.Actual = "CEMS已覆盖10项，本程序未修改本机iptables规则"
+		check.Conclusion = core.ConclusionPass
+		check.Details = append(check.Details, core.Detail{Name: "核验结果", Value: "无需补充"})
+		return check
+	}
+	for index, rule := range missing {
+		check.Details = append(check.Details, core.Detail{
+			Name:  fmt.Sprintf("CEMS管理端待补%02d", index+1),
+			Value: formatPortRule(rule) + " 入站阻断",
+		})
+	}
+	return check
+}
+
+func formatPortRules(rules []portRule) string {
+	if len(rules) == 0 {
+		return "无"
+	}
+	values := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		values = append(values, formatPortRule(rule))
+	}
+	return strings.Join(values, "、")
+}
+
+func formatPortRule(rule portRule) string {
+	return strings.ToUpper(rule.Protocol) + " " + fmt.Sprint(rule.Port)
 }
 
 func firewallOverrideCheck(remaining []Command) core.Check {

@@ -433,7 +433,7 @@ func isGeneratedReportURL(value string) bool {
 	if filepath.Ext(name) != ".html" && filepath.Ext(name) != ".json" {
 		return false
 	}
-	return strings.HasPrefix(name, "kylin-report_") || strings.HasPrefix(name, "kylin-cleanup-report_")
+	return strings.HasPrefix(name, "verification-report_") || strings.HasPrefix(name, "kylin-report_") || strings.HasPrefix(name, "kylin-cleanup-report_")
 }
 
 func recentFileEvidence(user string, bookmark recentBookmark, mountPoints []string) string {

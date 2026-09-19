@@ -148,13 +148,13 @@ struct Report {
   std::wstring mac;
   std::wstring computer;
   std::wstring finished;
+  std::wstring platform;
   std::vector<std::wstring> issues;
   std::vector<std::wstring> issueItems;
   std::vector<std::wstring> reviews;
   std::wstring owner;
   std::wstring organization;
   std::wstring os;
-  std::wstring advice;
   std::wstring risk;
 };
 
@@ -524,8 +524,10 @@ bool ValidStamp(const std::wstring &stamp) {
   return true;
 }
 bool ReportFilename(const std::wstring &name, std::wstring &stamp) {
-  const std::wstring prefix = L"verification-report_", suffix = L".json";
-  if (name.size() <= prefix.size() + suffix.size() || name.compare(0, prefix.size(), prefix) != 0 ||
+  const std::wstring windowsPrefix = L"verification-report_", kylinPrefix = L"kylin-report_", suffix = L".json";
+  const bool supportedPrefix = name.compare(0, windowsPrefix.size(), windowsPrefix) == 0 ||
+                               name.compare(0, kylinPrefix.size(), kylinPrefix) == 0;
+  if (!supportedPrefix || name.size() <= kylinPrefix.size() + suffix.size() ||
       _wcsicmp(name.substr(name.size() - suffix.size()).c_str(), suffix.c_str()) != 0) return false;
   std::wstring stem = name.substr(0, name.size() - suffix.size());
   size_t split = stem.find_last_of(L'_');
@@ -534,10 +536,8 @@ bool ReportFilename(const std::wstring &name, std::wstring &stamp) {
   return ValidStamp(stamp);
 }
 std::wstring ProblemText(size_t number, const Json &row) {
-  std::wstring item = Text(row, L"item"), actual = Text(row, L"actual");
-  std::wstring line = std::to_wstring(number) + L". " + (item.empty() ? L"未命名项目" : item);
-  if (!actual.empty()) line += L"：" + actual;
-  return line;
+  const std::wstring item = Text(row, L"item");
+  return std::to_wstring(number) + L". " + (item.empty() ? L"未命名项目" : item);
 }
 bool LoadReport(const std::wstring &path, const std::wstring &name, const std::wstring &stamp, Report &report) {
   std::wstring content;
@@ -547,9 +547,21 @@ bool LoadReport(const std::wstring &path, const std::wstring &name, const std::w
   report.mac = Text(root, L"mac");
   report.computer = Text(root, L"computer");
   report.finished = Text(root, L"finished");
+  report.platform = Text(root, L"platform");
+  const Json *identity = Field(root, L"identity");
+  if (identity && identity->type == Json::Type::Object) {
+    if (report.ip.empty()) report.ip = Text(*identity, L"ip");
+    if (report.mac.empty()) report.mac = Text(*identity, L"mac");
+    if (report.computer.empty()) report.computer = Text(*identity, L"hostname");
+  }
+  if (report.finished.empty()) report.finished = Text(root, L"generated_at");
+  if (report.platform.empty())
+    report.platform = name.compare(0, wcslen(L"kylin-report_"), L"kylin-report_") == 0 ? L"Kylin" : L"Windows";
   report.source = name;
   report.stamp = stamp;
   const Json *summary = Field(root, L"summary");
+  if (!summary || summary->type != Json::Type::Array) summary = Field(root, L"after_checks");
+  if (!summary || summary->type != Json::Type::Array) summary = Field(root, L"checks");
   if (report.ip.empty() || !summary || summary->type != Json::Type::Array) return false;
   for (const Json &row : summary->array) {
     if (row.type != Json::Type::Object) continue;
@@ -564,24 +576,57 @@ bool LoadReport(const std::wstring &path, const std::wstring &name, const std::w
   }
   return true;
 }
-std::vector<Report> LatestReports(const std::wstring &directory, size_t &invalid) {
-  std::map<std::wstring, Report> latest;
+bool FileExists(const std::wstring &path) {
+  const DWORD attributes = GetFileAttributesW(path.c_str());
+  return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
+}
+std::vector<Report> LatestReports(const std::wstring &directory, size_t &invalid,
+                                  std::vector<std::wstring> &warnings) {
+  std::map<std::wstring, std::vector<Report>> grouped;
   invalid = 0;
   WIN32_FIND_DATAW data{};
-  HANDLE find = FindFirstFileW(Join(directory, L"verification-report_*.json").c_str(), &data);
+  HANDLE find = FindFirstFileW(Join(directory, L"*report_*.json").c_str(), &data);
   if (find == INVALID_HANDLE_VALUE) return {};
   do {
     if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
     std::wstring stamp;
     if (!ReportFilename(data.cFileName, stamp)) { ++invalid; continue; }
+    const std::wstring name = data.cFileName;
+    const std::wstring html = name.substr(0, name.size() - 5) + L".html";
+    if (!FileExists(Join(directory, html))) {
+      ++invalid;
+      warnings.push_back(L"缺少配对HTML：" + name);
+      continue;
+    }
     Report report;
-    if (!LoadReport(Join(directory, data.cFileName), data.cFileName, stamp, report)) { ++invalid; continue; }
-    auto it = latest.find(report.ip);
-    if (it == latest.end() || report.stamp > it->second.stamp) latest[report.ip] = std::move(report);
+    if (!LoadReport(Join(directory, name), name, stamp, report)) {
+      ++invalid;
+      warnings.push_back(L"JSON格式错误或缺少必要字段：" + name);
+      continue;
+    }
+    const std::wstring identity = report.platform + L"|" +
+        (NormalizeMac(report.mac).empty() ? report.ip : NormalizeMac(report.mac));
+    grouped[identity].push_back(std::move(report));
   } while (FindNextFileW(find, &data));
   FindClose(find);
   std::vector<Report> reports;
-  for (auto &entry : latest) reports.push_back(std::move(entry.second));
+  for (auto &entry : grouped) {
+    std::wstring newestStamp;
+    for (const Report &report : entry.second) newestStamp = (std::max)(newestStamp, report.stamp);
+    std::vector<Report *> newest;
+    for (Report &report : entry.second) if (report.stamp == newestStamp) newest.push_back(&report);
+    if (newest.size() != 1) {
+      ++invalid;
+      std::wstring sources;
+      for (Report *report : newest) {
+        if (!sources.empty()) sources += L"；";
+        sources += report->source;
+      }
+      warnings.push_back(L"同一终端同时间戳冲突：" + sources);
+      continue;
+    }
+    reports.push_back(std::move(*newest.front()));
+  }
   return reports;
 }
 
@@ -616,17 +661,16 @@ std::string NumberCell(const char *ref, size_t value, int style) {
          "\"><v>" + std::to_string(value) + "</v></c>";
 }
 bool IsHighRiskItem(const std::wstring &item) {
-  return item == L"Server 文件共享服务" || item == L"远程桌面服务" ||
+  return item.find(L"高危端口") != std::wstring::npos || item.find(L"端口阻断") != std::wstring::npos ||
+         item.find(L"文件共享") != std::wstring::npos || item.find(L"远程访问") != std::wstring::npos ||
+         item.find(L"防火墙") != std::wstring::npos || item.find(L"无线网络") != std::wstring::npos ||
+         item.find(L"Wi-Fi") != std::wstring::npos || item == L"Server 文件共享服务" || item == L"远程桌面服务" ||
          item == L"远程桌面连接策略" || item == L"Windows 防火墙配置文件" ||
          item == L"网络配置记录" || item == L"已保存 Wi-Fi 配置" ||
          item == L"无线网卡" || item.compare(0, 6, L"防火墙规则 ") == 0;
 }
 bool IsMediumRiskItem(const std::wstring &item) {
-  return item == L"浏览器已保存密码" || item == L"NetBIOS 配置汇总";
-}
-bool ContainsItem(const std::vector<std::wstring> &items, const wchar_t *pattern) {
-  for (const std::wstring &item : items) if (item.find(pattern) != std::wstring::npos) return true;
-  return false;
+  return item.find(L"浏览器") != std::wstring::npos && item.find(L"密码") != std::wstring::npos;
 }
 std::wstring RiskLevel(const Report &report) {
   for (const std::wstring &item : report.issueItems) if (IsHighRiskItem(item)) return L"高危";
@@ -634,25 +678,6 @@ std::wstring RiskLevel(const Report &report) {
   if (!report.reviews.empty()) return L"待核查";
   if (!report.issues.empty()) return L"低危";
   return L"正常";
-}
-std::wstring Advice(const Report &report) {
-  std::vector<std::wstring> result;
-  for (const std::wstring &item : report.issueItems) {
-    if (item == L"Server 文件共享服务" || item == L"远程桌面服务" ||
-        item == L"远程桌面连接策略" || item == L"Windows 防火墙配置文件" ||
-        item == L"NetBIOS 配置汇总" || item.compare(0, 6, L"防火墙规则 ") == 0) {
-      result.push_back(L"运行修复工具后重新检查"); break;
-    }
-  }
-  if (ContainsItem(report.issueItems, L"浏览器")) result.push_back(L"核实并清理浏览器保存的账号密码");
-  if (ContainsItem(report.issueItems, L"Wi-Fi") || ContainsItem(report.issueItems, L"网络配置") ||
-      ContainsItem(report.issueItems, L"无线网卡")) result.push_back(L"核实并清理无线网络记录");
-  if (ContainsItem(report.reviews, L"USB")) result.push_back(L"现场核查USB存储设备记录");
-  if (ContainsItem(report.reviews, L"端口外部连通性")) result.push_back(L"从另一台电脑复测目标端口");
-  if (result.empty()) return L"无需处理";
-  std::wstring text;
-  for (size_t i = 0; i < result.size(); ++i) { if (i) text += L"；"; text += result[i]; }
-  return text;
 }
 const Assignment *UniqueAssignment(const std::vector<Assignment> &items, const Report &report,
                                    int mode) {
@@ -683,7 +708,6 @@ void ApplyAssignments(std::vector<Report> &reports, const std::vector<Assignment
       report.os.clear();
     }
     report.risk = match ? RiskLevel(report) : L"待核查";
-    report.advice = match ? Advice(report) : L"IP/MAC未能唯一匹配人员，请人工确认";
   }
   std::sort(reports.begin(), reports.end(), [](const Report &left, const Report &right) {
     int owner = CompareStringEx(LOCALE_NAME_USER_DEFAULT, SORT_DIGITSASNUMBERS,
@@ -691,18 +715,19 @@ void ApplyAssignments(std::vector<Report> &reports, const std::vector<Assignment
     return owner == CSTR_LESS_THAN || (owner == CSTR_EQUAL && left.ip < right.ip);
   });
 }
-std::string SheetXml(const std::vector<Report> &reports, size_t invalid) {
-  std::string x = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
-    "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
-    "<sheetViews><sheetView workbookViewId=\"0\"><pane ySplit=\"4\" topLeftCell=\"A5\" activePane=\"bottomLeft\" state=\"frozen\"/></sheetView></sheetViews>"
-    "<sheetFormatPr defaultRowHeight=\"18\"/>"
-    "<cols><col min=\"1\" max=\"1\" width=\"16\" customWidth=\"1\"/><col min=\"2\" max=\"4\" width=\"20\" customWidth=\"1\"/>"
-    "<col min=\"5\" max=\"7\" width=\"21\" customWidth=\"1\"/><col min=\"8\" max=\"9\" width=\"55\" customWidth=\"1\"/>"
-    "<col min=\"10\" max=\"10\" width=\"48\" customWidth=\"1\"/><col min=\"11\" max=\"11\" width=\"12\" customWidth=\"1\"/></cols><sheetData>";
-  x += "<row r=\"1\" ht=\"26\" customHeight=\"1\">" + Cell("A1", L"人员终端安全问题汇总", 1) + "</row>";
-  std::wstring note = L"根据人员对应表匹配IP和MAC；每个IP仅采用时间最新的报告。读取失败文件：" + std::to_wstring(invalid) + L" 个。";
-  x += "<row r=\"2\" ht=\"20\" customHeight=\"1\">" + Cell("A2", note, 2) + "</row><row r=\"3\"/>";
-  const wchar_t *headers[] = {L"持有人", L"组织机构", L"操作系统", L"计算机名", L"IP", L"MAC", L"检查时间", L"异常问题", L"需复核问题", L"处理建议", L"风险等级"};
+std::string SheetStart(const std::string &columns, int frozenRows) {
+  return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+         "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
+         "<sheetViews><sheetView workbookViewId=\"0\"><pane ySplit=\"" + std::to_string(frozenRows) +
+         "\" topLeftCell=\"A" + std::to_string(frozenRows + 1) +
+         "\" activePane=\"bottomLeft\" state=\"frozen\"/></sheetView></sheetViews>"
+         "<sheetFormatPr defaultRowHeight=\"18\"/><cols>" + columns + "</cols><sheetData>";
+}
+std::string TerminalSheetXml(const std::vector<Report> &reports) {
+  std::string x = SheetStart("<col min=\"1\" max=\"7\" width=\"20\" customWidth=\"1\"/><col min=\"8\" max=\"9\" width=\"42\" customWidth=\"1\"/><col min=\"10\" max=\"10\" width=\"12\" customWidth=\"1\"/><col min=\"11\" max=\"11\" width=\"55\" customWidth=\"1\"/>", 4);
+  x += "<row r=\"1\" ht=\"26\" customHeight=\"1\">" + Cell("A1", L"终端问题汇总", 1) + "</row>";
+  x += "<row r=\"2\" ht=\"20\" customHeight=\"1\">" + Cell("A2", L"每台终端只采用最新有效报告；问题栏仅保留简明名称。", 2) + "</row><row r=\"3\"/>";
+  const wchar_t *headers[] = {L"持有人", L"组织机构", L"平台", L"计算机名", L"IP", L"MAC", L"检查时间", L"异常问题", L"需复核问题", L"风险等级", L"源报告文件名"};
   x += "<row r=\"4\" ht=\"24\" customHeight=\"1\">";
   for (int i = 0; i < 11; ++i) { char ref[8]{}; sprintf_s(ref, "%c4", 'A' + i); x += Cell(ref, headers[i], 3); }
   x += "</row>";
@@ -716,98 +741,95 @@ std::string SheetXml(const std::vector<Report> &reports, size_t invalid) {
       char ref[16]{}; sprintf_s(ref, "%c%zu", 'A' + col, row);
       if (col == 0) x += Cell(ref, r.owner, 4);
       else if (col == 1) x += Cell(ref, r.organization, 4);
-      else if (col == 2) x += Cell(ref, r.os, 4);
+      else if (col == 2) x += Cell(ref, r.platform, 4);
       else if (col == 3) x += Cell(ref, r.computer, 4);
       else if (col == 4) x += Cell(ref, r.ip, 4);
       else if (col == 5) x += Cell(ref, r.mac, 4);
       else if (col == 6) x += Cell(ref, r.finished, 4);
       else if (col == 7) x += Cell(ref, Lines(r.issues), 5);
       else if (col == 8) x += Cell(ref, Lines(r.reviews), 5);
-      else if (col == 9) x += Cell(ref, r.advice, 5);
-      else {
+      else if (col == 9) {
         int riskStyle = r.risk == L"高危" ? 7 : r.risk == L"中危" || r.risk == L"待核查" ? 8 : r.risk == L"正常" ? 9 : 10;
         x += Cell(ref, r.risk, riskStyle);
-      }
+      } else x += Cell(ref, r.source, 5);
     }
     x += "</row>";
   }
-  size_t last = std::max<size_t>(4, reports.size() + 4);
-  size_t abnormalIps = 0, reviewIps = 0, browserPasswordIps = 0;
-  size_t highRiskIps = 0, mediumRiskIps = 0, lowRiskIps = 0, normalIps = 0, unmatchedIps = 0;
-  std::map<std::wstring, size_t> itemCounts;
-  for (const Report &r : reports) {
-    if (!r.issues.empty()) ++abnormalIps;
-    if (!r.reviews.empty()) ++reviewIps;
-    std::set<std::wstring> uniqueItems(r.issueItems.begin(), r.issueItems.end());
-    bool browserPassword = false;
-    for (const std::wstring &item : uniqueItems) {
-      ++itemCounts[item];
-      if (item == L"浏览器已保存密码") browserPassword = true;
-    }
-    if (browserPassword) ++browserPasswordIps;
-    if (r.risk == L"高危") ++highRiskIps;
-    else if (r.risk == L"中危") ++mediumRiskIps;
-    else if (r.risk == L"低危") ++lowRiskIps;
-    else if (r.risk == L"正常") ++normalIps;
-    if (r.owner == L"未匹配") ++unmatchedIps;
-  }
-
-  char ref[16]{};
-  size_t summaryTitle = last + 2, summaryHeader = summaryTitle + 1;
-  x += "<row r=\"" + std::to_string(summaryTitle) + "\" ht=\"26\" customHeight=\"1\">";
-  sprintf_s(ref, "A%zu", summaryTitle);
-  x += Cell(ref, L"终端问题统计", 1) + "</row>";
-  x += "<row r=\"" + std::to_string(summaryHeader) + "\" ht=\"24\" customHeight=\"1\">";
-  const wchar_t *summaryHeaders[] = {L"统计项目", L"终端数量", L"统计口径"};
-  for (int col = 0; col < 3; ++col) {
-    sprintf_s(ref, "%c%zu", 'A' + col, summaryHeader);
-    x += Cell(ref, summaryHeaders[col], 3);
-  }
-  x += "</row>";
-  struct SummaryRow { const wchar_t *label; size_t count; const wchar_t *basis; };
-  const SummaryRow summaryRows[] = {
-      {L"全部终端", reports.size(), L"按 IP 地址去重"},
-      {L"存在异常的终端", abnormalIps, L"至少有一项检查结论为异常"},
-      {L"需要人工复核的终端", reviewIps, L"至少有一项检查结论为需复核"},
-      {L"浏览器保存密码的终端", browserPasswordIps, L"“浏览器已保存密码”检查结论为异常"},
-      {L"高危终端", highRiskIps, L"高危端口、防火墙、Server、远程桌面或无线网络任一项异常"},
-      {L"中危终端", mediumRiskIps, L"无高危项，但浏览器保存密码或NetBIOS异常"},
-      {L"低危终端", lowRiskIps, L"仅存在其他已确认异常"},
-      {L"正常终端", normalIps, L"没有异常和需复核项"},
-      {L"未匹配人员的终端", unmatchedIps, L"IP和MAC无法在人员对应表中唯一匹配"}};
-  for (size_t i = 0; i < std::size(summaryRows); ++i) {
-    size_t row = summaryHeader + 1 + i;
-    x += "<row r=\"" + std::to_string(row) + "\" ht=\"36\" customHeight=\"1\">";
-    sprintf_s(ref, "A%zu", row); x += Cell(ref, summaryRows[i].label, 4);
-    sprintf_s(ref, "B%zu", row); x += NumberCell(ref, summaryRows[i].count, 6);
-    sprintf_s(ref, "C%zu", row); x += Cell(ref, summaryRows[i].basis, 5);
-    x += "</row>";
-  }
-
-  size_t itemTitle = summaryHeader + std::size(summaryRows) + 2;
-  x += "<row r=\"" + std::to_string(itemTitle) + "\" ht=\"24\" customHeight=\"1\">";
-  sprintf_s(ref, "A%zu", itemTitle);
-  x += Cell(ref, L"具体异常项目统计", 1) + "</row>";
-  size_t itemHeader = itemTitle + 1;
-  x += "<row r=\"" + std::to_string(itemHeader) + "\" ht=\"24\" customHeight=\"1\">";
-  const wchar_t *itemHeaders[] = {L"异常检查项目", L"受影响终端数量", L"统计口径"};
-  for (int col = 0; col < 3; ++col) {
-    sprintf_s(ref, "%c%zu", 'A' + col, itemHeader);
-    x += Cell(ref, itemHeaders[col], 3);
-  }
-  x += "</row>";
-  size_t itemRow = itemHeader + 1;
-  for (const auto &entry : itemCounts) {
-    x += "<row r=\"" + std::to_string(itemRow) + "\" ht=\"24\" customHeight=\"1\">";
-    sprintf_s(ref, "A%zu", itemRow); x += Cell(ref, entry.first, 4);
-    sprintf_s(ref, "B%zu", itemRow); x += NumberCell(ref, entry.second, 6);
-    sprintf_s(ref, "C%zu", itemRow); x += Cell(ref, L"同一 IP 的同一项目只计一次", 5);
-    x += "</row>";
-    ++itemRow;
-  }
+  const size_t last = std::max<size_t>(4, reports.size() + 4);
   x += "</sheetData><autoFilter ref=\"A4:K" + std::to_string(last) + "\"/>"
        "<pageMargins left=\"0.3\" right=\"0.3\" top=\"0.5\" bottom=\"0.5\" header=\"0.2\" footer=\"0.2\"/>"
        "</worksheet>";
+  return x;
+}
+
+int RiskRank(const std::wstring &risk) {
+  if (risk == L"高危") return 4;
+  if (risk == L"中危") return 3;
+  if (risk == L"低危") return 2;
+  if (risk == L"待核查") return 1;
+  return 0;
+}
+std::string PersonSheetXml(const std::vector<Report> &reports) {
+  struct Person { std::wstring owner, organization, terminals, issues, reviews, risk = L"正常"; };
+  std::map<std::wstring, Person> people;
+  for (const Report &r : reports) {
+    const std::wstring key = r.owner == L"未匹配" ? r.owner + L"|" + r.ip + L"|" + r.mac : r.owner + L"|" + r.organization;
+    Person &p = people[key];
+    p.owner = r.owner; p.organization = r.organization;
+    const std::wstring terminal = r.platform + L" " + r.ip + L" " + r.mac;
+    if (!p.terminals.empty()) p.terminals += L"\n";
+    p.terminals += terminal;
+    for (const std::wstring &item : r.issues) { if (!p.issues.empty()) p.issues += L"\n"; p.issues += terminal + L"：" + item; }
+    for (const std::wstring &item : r.reviews) { if (!p.reviews.empty()) p.reviews += L"\n"; p.reviews += terminal + L"：" + item; }
+    if (RiskRank(r.risk) > RiskRank(p.risk)) p.risk = r.risk;
+  }
+  std::string x = SheetStart("<col min=\"1\" max=\"2\" width=\"20\" customWidth=\"1\"/><col min=\"3\" max=\"5\" width=\"55\" customWidth=\"1\"/><col min=\"6\" max=\"6\" width=\"12\" customWidth=\"1\"/>", 2);
+  x += "<row r=\"1\">" + Cell("A1", L"人员问题汇总", 1) + "</row><row r=\"2\">";
+  const wchar_t *headers[] = {L"持有人", L"组织机构", L"终端标识", L"异常问题", L"需复核问题", L"最高风险等级"};
+  for (int col = 0; col < 6; ++col) { char ref[8]{}; sprintf_s(ref, "%c2", 'A' + col); x += Cell(ref, headers[col], 3); }
+  x += "</row>";
+  size_t row = 3;
+  for (const auto &entry : people) {
+    const Person &p = entry.second;
+    x += "<row r=\"" + std::to_string(row) + "\" ht=\"60\" customHeight=\"1\">";
+    const std::wstring values[] = {p.owner, p.organization, p.terminals, p.issues.empty() ? L"无" : p.issues,
+                                   p.reviews.empty() ? L"无" : p.reviews, p.risk};
+    for (int col = 0; col < 6; ++col) { char ref[16]{}; sprintf_s(ref, "%c%zu", 'A' + col, row); x += Cell(ref, values[col], col >= 2 ? 5 : 4); }
+    x += "</row>"; ++row;
+  }
+  x += "</sheetData><autoFilter ref=\"A2:F" + std::to_string(std::max<size_t>(2, row - 1)) + "\"/></worksheet>";
+  return x;
+}
+std::string StatisticsSheetXml(const std::vector<Report> &reports, size_t invalid) {
+  struct Count { size_t total = 0, problem = 0, unmatched = 0; };
+  std::map<std::wstring, Count> counts;
+  for (const Report &r : reports) {
+    const bool problem = !r.issues.empty() || !r.reviews.empty();
+    for (const auto &group : {std::make_pair(std::wstring(L"平台"), r.platform),
+                              std::make_pair(std::wstring(L"组织机构"), r.organization.empty() ? std::wstring(L"未填写") : r.organization),
+                              std::make_pair(std::wstring(L"风险等级"), r.risk)}) {
+      Count &count = counts[group.first + L"|" + group.second];
+      ++count.total; if (problem) ++count.problem; if (r.owner == L"未匹配") ++count.unmatched;
+    }
+  }
+  std::string x = SheetStart("<col min=\"1\" max=\"2\" width=\"24\" customWidth=\"1\"/><col min=\"3\" max=\"6\" width=\"18\" customWidth=\"1\"/>", 2);
+  x += "<row r=\"1\">" + Cell("A1", L"统计汇总", 1) + "</row><row r=\"2\">";
+  const wchar_t *headers[] = {L"统计维度", L"统计值", L"终端数量", L"问题终端数量", L"未匹配人员数量", L"读取失败报告数量"};
+  for (int col = 0; col < 6; ++col) { char ref[8]{}; sprintf_s(ref, "%c2", 'A' + col); x += Cell(ref, headers[col], 3); }
+  x += "</row>";
+  size_t row = 3;
+  for (const auto &entry : counts) {
+    const size_t split = entry.first.find(L'|');
+    x += "<row r=\"" + std::to_string(row) + "\">";
+    char ref[16]{}; sprintf_s(ref, "A%zu", row); x += Cell(ref, entry.first.substr(0, split), 4);
+    sprintf_s(ref, "B%zu", row); x += Cell(ref, entry.first.substr(split + 1), 4);
+    sprintf_s(ref, "C%zu", row); x += NumberCell(ref, entry.second.total, 6);
+    sprintf_s(ref, "D%zu", row); x += NumberCell(ref, entry.second.problem, 6);
+    sprintf_s(ref, "E%zu", row); x += NumberCell(ref, entry.second.unmatched, 6);
+    sprintf_s(ref, "F%zu", row); x += NumberCell(ref, row == 3 ? invalid : 0, 6);
+    x += "</row>"; ++row;
+  }
+  x += "</sheetData><autoFilter ref=\"A2:F" + std::to_string(std::max<size_t>(2, row - 1)) + "\"/></worksheet>";
   return x;
 }
 
@@ -874,19 +896,20 @@ int wmain(int argc, wchar_t **argv) {
     return 3;
   }
   size_t invalid = 0;
-  std::vector<Report> reports = LatestReports(directory, invalid);
+  std::vector<std::wstring> warnings;
+  std::vector<Report> reports = LatestReports(directory, invalid, warnings);
   if (reports.empty()) {
     std::wcerr << L"没有找到可读取的 verification-report_*.json 报告。\n";
     WriteLog(Join(directory, L"issue-summary.log"), L"未生成 Excel：没有找到可读取的 JSON 报告。\r\n");
     return 1;
   }
   ApplyAssignments(reports, assignments);
-  const std::string contentTypes = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/></Types>";
+  const std::string contentTypes = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet3.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/></Types>";
   const std::string rootRels = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>";
-  const std::string workbook = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"问题汇总\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>";
-  const std::string workbookRels = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/></Relationships>";
+  const std::string workbook = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"终端问题汇总\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"人员问题汇总\" sheetId=\"2\" r:id=\"rId2\"/><sheet name=\"统计汇总\" sheetId=\"3\" r:id=\"rId3\"/></sheets></workbook>";
+  const std::string workbookRels = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/><Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet3.xml\"/><Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/></Relationships>";
   const std::string styles = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><fonts count=\"4\"><font><sz val=\"11\"/><name val=\"Arial\"/></font><font><b/><sz val=\"16\"/><name val=\"Arial\"/></font><font><i/><color rgb=\"FF666666\"/><sz val=\"10\"/><name val=\"Arial\"/></font><font><b/><color rgb=\"FFFFFFFF\"/><sz val=\"11\"/><name val=\"Arial\"/></font></fonts><fills count=\"7\"><fill><patternFill patternType=\"none\"/></fill><fill><patternFill patternType=\"gray125\"/></fill><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FF1F4E78\"/><bgColor indexed=\"64\"/></patternFill></fill><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFFFE5E5\"/><bgColor indexed=\"64\"/></patternFill></fill><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFFFF2CC\"/><bgColor indexed=\"64\"/></patternFill></fill><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFE2F0D9\"/><bgColor indexed=\"64\"/></patternFill></fill><fill><patternFill patternType=\"solid\"><fgColor rgb=\"FFEAF2FF\"/><bgColor indexed=\"64\"/></patternFill></fill></fills><borders count=\"2\"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style=\"thin\"><color rgb=\"FFD9E0E6\"/></left><right style=\"thin\"><color rgb=\"FFD9E0E6\"/></right><top style=\"thin\"><color rgb=\"FFD9E0E6\"/></top><bottom style=\"thin\"><color rgb=\"FFD9E0E6\"/></bottom><diagonal/></border></borders><cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs><cellXfs count=\"11\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"2\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/><xf numFmtId=\"0\" fontId=\"3\" fillId=\"2\" borderId=\"1\" xfId=\"0\"><alignment horizontal=\"center\" vertical=\"center\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"1\" xfId=\"0\"><alignment vertical=\"top\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"1\" xfId=\"0\"><alignment vertical=\"top\" wrapText=\"1\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"1\" xfId=\"0\"><alignment horizontal=\"center\" vertical=\"top\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"3\" borderId=\"1\" xfId=\"0\"><alignment horizontal=\"center\" vertical=\"center\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"4\" borderId=\"1\" xfId=\"0\"><alignment horizontal=\"center\" vertical=\"center\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"5\" borderId=\"1\" xfId=\"0\"><alignment horizontal=\"center\" vertical=\"center\"/></xf><xf numFmtId=\"0\" fontId=\"0\" fillId=\"6\" borderId=\"1\" xfId=\"0\"><alignment horizontal=\"center\" vertical=\"center\"/></xf></cellXfs><cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles></styleSheet>";
-  std::vector<ZipEntry> entries = {{"[Content_Types].xml", contentTypes}, {"_rels/.rels", rootRels}, {"xl/workbook.xml", workbook}, {"xl/_rels/workbook.xml.rels", workbookRels}, {"xl/styles.xml", styles}, {"xl/worksheets/sheet1.xml", SheetXml(reports, invalid)}};
+  std::vector<ZipEntry> entries = {{"[Content_Types].xml", contentTypes}, {"_rels/.rels", rootRels}, {"xl/workbook.xml", workbook}, {"xl/_rels/workbook.xml.rels", workbookRels}, {"xl/styles.xml", styles}, {"xl/worksheets/sheet1.xml", TerminalSheetXml(reports)}, {"xl/worksheets/sheet2.xml", PersonSheetXml(reports)}, {"xl/worksheets/sheet3.xml", StatisticsSheetXml(reports, invalid)}};
   const std::wstring output = Join(directory, L"person-security-issues-summary.xlsx");
   if (!SaveXlsx(output, std::move(entries))) {
     std::wcerr << L"无法写入 Excel，请关闭已打开的同名文件并检查目录权限。\n";
@@ -897,9 +920,11 @@ int wmain(int argc, wchar_t **argv) {
   for (const auto &r : reports) { if (!r.issues.empty()) ++issueIps; if (!r.reviews.empty()) ++reviewIps; }
   size_t unmatched = 0;
   for (const auto &r : reports) if (r.owner == L"未匹配") ++unmatched;
-  std::wstring log = L"人员终端安全问题汇总完成。\r\nIP数量：" + std::to_wstring(reports.size()) + L"\r\n存在异常的IP：" + std::to_wstring(issueIps) + L"\r\n存在需复核项的IP：" + std::to_wstring(reviewIps) + L"\r\n未匹配人员：" + std::to_wstring(unmatched) + L"\r\n读取失败文件：" + std::to_wstring(invalid) + L"\r\n输出：person-security-issues-summary.xlsx\r\n";
+  std::wstring log = L"跨平台人员终端安全问题汇总完成。\r\n终端数量：" + std::to_wstring(reports.size()) + L"\r\n存在异常的终端：" + std::to_wstring(issueIps) + L"\r\n存在需复核项的终端：" + std::to_wstring(reviewIps) + L"\r\n未匹配人员：" + std::to_wstring(unmatched) + L"\r\n读取失败或冲突：" + std::to_wstring(invalid) + L"\r\n";
+  for (const std::wstring &warning : warnings) log += warning + L"\r\n";
+  log += L"输出：person-security-issues-summary.xlsx\r\n";
   bool logged = WriteLog(Join(directory, L"issue-summary.log"), log);
-  std::wcout << L"汇总完成。每名终端使用人一行，共 " << reports.size() << L" 个 IP。\n"
+  std::wcout << L"汇总完成。共读取 " << reports.size() << L" 台终端，已生成终端、人员和统计三张工作表。\n"
              << L"Excel：" << output << L"\n读取失败文件：" << invalid << L" 个。\n";
   return logged ? 0 : 1;
 }

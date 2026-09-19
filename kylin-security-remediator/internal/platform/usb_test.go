@@ -399,6 +399,7 @@ func TestUSBProbeExcludesItsOwnGeneratedReportsFromRecentHistory(t *testing.T) {
 			"home/alice/.local/share/recently-used.xbel": {Data: []byte(`<xbel>
   <bookmark href="file:///media/USB/kylin-report_unknown_AA-BB_20260915-204947-600.html" visited="2026-09-15T20:49:50Z"/>
   <bookmark href="file:///media/USB/kylin-cleanup-report_unknown_AA-BB_20260915-204947-600.json" visited="2026-09-15T20:49:51Z"/>
+  <bookmark href="file:///media/USB/verification-report_192.0.2.20_AA-BB_20260919-080000-000.html" visited="2026-09-19T08:00:00Z"/>
   <bookmark href="file:///media/USB/user-document.pdf" visited="2026-09-15T20:40:00Z"/>
 </xbel>`)},
 		},
@@ -420,8 +421,8 @@ func TestUSBProbeExcludesItsOwnGeneratedReportsFromRecentHistory(t *testing.T) {
 func TestUSBProbeUsesMountInfoForRecentFileMountPoint(t *testing.T) {
 	probe := platform.USBProbe{
 		Root: fstest.MapFS{
-			"home/test/.local/share/recently-used.xbel": {Data: []byte(`<xbel><bookmark href="file:///media/edpedisk1/tools/private.pdf" visited="2026-09-15T20:40:00Z"/></xbel>`)},
-			"proc/self/mountinfo":                       {Data: []byte("36 29 8:17 / /media/edpedisk1 rw,nosuid,nodev - vfat /dev/sdb1 rw\n")},
+			"home/test/.local/share/recently-used.xbel": {Data: []byte(`<xbel><bookmark href="file:///media/test/USB/tools/private.pdf" visited="2026-09-15T20:40:00Z"/></xbel>`)},
+			"proc/self/mountinfo":                       {Data: []byte("36 29 8:17 / /media/test/USB rw,nosuid,nodev - vfat /dev/sdb1 rw\n")},
 		},
 		Journal: func(context.Context) ([]byte, error) {
 			return []byte("Linux version fixture\n"), nil
@@ -433,7 +434,7 @@ func TestUSBProbeUsesMountInfoForRecentFileMountPoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	recent := sourceByName(t, results, "用户级最近文件记录")
-	if len(recent.Records) != 1 || !strings.Contains(recent.Records[0].Evidence, "挂载点=/media/edpedisk1；") {
+	if len(recent.Records) != 1 || !strings.Contains(recent.Records[0].Evidence, "挂载点=/media/test/USB；") {
 		t.Fatalf("recent evidence = %#v", recent.Records)
 	}
 }

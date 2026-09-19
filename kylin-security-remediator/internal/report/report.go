@@ -22,6 +22,8 @@ type detailSection struct {
 	Rows  []detailRow
 }
 
+const detailConclusionInfo core.Conclusion = "信息"
+
 type reportView struct {
 	core.Result
 	DisplayIP        string
@@ -40,6 +42,8 @@ var page = template.Must(template.New("report").Funcs(template.FuncMap{
 			return "fail"
 		case core.ConclusionReview:
 			return "review"
+		case detailConclusionInfo:
+			return "info"
 		default:
 			return "na"
 		}
@@ -90,9 +94,25 @@ var page = template.Must(template.New("report").Funcs(template.FuncMap{
 </div></body></html>`))
 
 func Write(jsonWriter, htmlWriter io.Writer, result core.Result) error {
+	summary := result.Checks
+	if len(result.AfterChecks) > 0 {
+		summary = result.AfterChecks
+	}
+	payload := struct {
+		core.Result
+		Platform string       `json:"platform"`
+		IP       string       `json:"ip"`
+		MAC      string       `json:"mac"`
+		Computer string       `json:"computer"`
+		Finished string       `json:"finished"`
+		Summary  []core.Check `json:"summary"`
+	}{
+		Result: result, Platform: "Kylin", IP: result.Identity.IP, MAC: result.Identity.MAC,
+		Computer: result.Identity.Hostname, Finished: result.GeneratedAt, Summary: summary,
+	}
 	encoder := json.NewEncoder(jsonWriter)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(result); err != nil {
+	if err := encoder.Encode(payload); err != nil {
 		return err
 	}
 	return page.Execute(htmlWriter, buildView(result))
@@ -143,11 +163,28 @@ func buildDetailSections(checks []core.Check) []detailSection {
 		}
 		for _, detail := range check.Details {
 			sections[index].Rows = append(sections[index].Rows, detailRow{
-				Item: check.Item, Field: detail.Name, Value: detail.Value, Conclusion: check.Conclusion,
+				Item: check.Item, Field: detail.Name, Value: detail.Value, Conclusion: detailConclusion(check, detail),
 			})
 		}
 	}
 	return sections
+}
+
+func detailConclusion(check core.Check, detail core.Detail) core.Conclusion {
+	if check.Category != "防火墙" || check.Item != "高危端口入站阻断规则" {
+		return check.Conclusion
+	}
+	switch detail.Name {
+	case "数据来源", "管理方式", "审计范围":
+		return detailConclusionInfo
+	case "CEMS已覆盖":
+		return core.ConclusionPass
+	default:
+		if strings.HasPrefix(detail.Name, "CEMS管理端待补") {
+			return core.ConclusionFail
+		}
+		return check.Conclusion
+	}
 }
 
 func detailTitle(category string) string {

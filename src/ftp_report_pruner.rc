@@ -2,8 +2,8 @@
 #include <windows.h>
 1 ICON "remediator.ico"
 1 VERSIONINFO
- FILEVERSION 1,0,0,0
- PRODUCTVERSION 1,0,0,0
+ FILEVERSION 1,1,0,0
+ PRODUCTVERSION 1,1,0,0
  FILEFLAGSMASK 0x3fL
  FILEOS 0x40004L
  FILETYPE 0x1L
@@ -12,8 +12,8 @@ BEGIN
   BLOCK "080404b0" BEGIN
    VALUE "CompanyName", "倚栏听雨\0"
    VALUE "FileDescription", "FTP 重复报告整理工具\0"
-   VALUE "FileVersion", "1.0.0.0\0"
-   VALUE "ProductVersion", "1.0.0.0\0"
+   VALUE "FileVersion", "1.1.0.0\0"
+   VALUE "ProductVersion", "1.1.0.0\0"
    VALUE "LegalCopyright", "Copyright (C) 2026 倚栏听雨\0"
   END
  END

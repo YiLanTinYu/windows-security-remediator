@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -43,13 +44,13 @@ func TestUploadFailureKeepsReportsAndWritesLocalStatus(t *testing.T) {
 	if exitCode != 3 {
 		t.Fatalf("exit code = %d, want 3", exitCode)
 	}
-	base := filepath.Join(dir, "kylin-report_192.0.2.60_AA-00-BB-11-CC-22_20260913-120000-321")
+	base := filepath.Join(dir, "verification-report_192.0.2.60_AA-00-BB-11-CC-22_20260913-120000-321")
 	for _, extension := range []string{".html", ".json"} {
 		if _, err := os.Stat(base + extension); err != nil {
 			t.Fatalf("local report was not preserved: %v", err)
 		}
 	}
-	status, err := os.ReadFile(base + ".upload-status.json")
+	status, err := os.ReadFile(filepath.Join(dir, "upload-status_192.0.2.60_AA-00-BB-11-CC-22_20260913-120000-321.json"))
 	if err != nil {
 		t.Fatalf("missing upload status: %v", err)
 	}
@@ -109,7 +110,7 @@ func TestOnsiteAndFTPProduceIdenticalBusinessReportsForSameResult(t *testing.T) 
 	if code := app.RunWithUploader(context.Background(), []string{"--repair", "--output", ftpDir}, runner, now, &capturingUploader{}); code != 0 {
 		t.Fatalf("FTP exit code = %d", code)
 	}
-	base := "kylin-report_192.0.2.70_02-00-00-00-00-70_20260913-203000-456"
+	base := "verification-report_192.0.2.70_02-00-00-00-00-70_20260913-203000-456"
 	for _, extension := range []string{".json", ".html"} {
 		onsite, err := os.ReadFile(filepath.Join(onsiteDir, base+extension))
 		if err != nil {
@@ -184,21 +185,43 @@ func TestCleanUsesCleanModeAndCleanupReportName(t *testing.T) {
 	}
 }
 
-func TestAuditCreatesDistinguishableHTMLAndJSONReports(t *testing.T) {
+func TestAuditCreatesWindowsCompatibleHTMLAndJSONReports(t *testing.T) {
 	dir := t.TempDir()
-	runner := fixedRunner{result: core.Result{Identity: core.Identity{
-		IP: "192.0.2.20", MAC: "18-3D-2D-C6-47-7B",
-	}}}
+	runner := fixedRunner{result: core.Result{
+		Identity: core.Identity{Hostname: "KYLIN-PC", IP: "192.0.2.20", MAC: "18-3D-2D-C6-47-7B"},
+		Checks:   []core.Check{{Category: "防火墙", Item: "高危端口入站阻断规则", Actual: "仍需1项调整", Conclusion: core.ConclusionFail}},
+	}}
 	now := func() time.Time { return time.Date(2026, 9, 13, 8, 30, 45, 123000000, time.Local) }
 
 	exitCode := app.Run(context.Background(), []string{"--audit", "--output", dir}, runner, now)
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0", exitCode)
 	}
-	base := "kylin-report_192.0.2.20_18-3D-2D-C6-47-7B_20260913-083045-123"
+	base := "verification-report_192.0.2.20_18-3D-2D-C6-47-7B_20260913-083045-123"
 	for _, extension := range []string{".html", ".json"} {
 		if _, err := os.Stat(filepath.Join(dir, base+extension)); err != nil {
 			t.Errorf("missing %s report: %v", extension, err)
 		}
+	}
+	data, err := os.ReadFile(filepath.Join(dir, base+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Platform string       `json:"platform"`
+		IP       string       `json:"ip"`
+		MAC      string       `json:"mac"`
+		Computer string       `json:"computer"`
+		Finished string       `json:"finished"`
+		Summary  []core.Check `json:"summary"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Platform != "Kylin" || payload.IP != "192.0.2.20" || payload.MAC != "18-3D-2D-C6-47-7B" || payload.Computer != "KYLIN-PC" {
+		t.Fatalf("unexpected compatibility identity: %#v", payload)
+	}
+	if payload.Finished != "2026-09-13 08:30:45" || len(payload.Summary) != 1 || payload.Summary[0].Item != "高危端口入站阻断规则" {
+		t.Fatalf("unexpected compatibility summary: %#v", payload)
 	}
 }

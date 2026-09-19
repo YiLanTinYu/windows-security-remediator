@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -28,6 +29,95 @@ var requiredRules = []portRule{
 	{Protocol: "tcp", Port: 445},
 	{Protocol: "tcp", Port: 3389},
 	{Protocol: "udp", Port: 3389},
+}
+
+func cemsCoverage(saveOutput string) (covered []portRule, missing []portRule, managed bool) {
+	lines := normalizedLines(saveOutput)
+	managed = contains(lines, "-A INPUT -j CEMS_COMMON_INPUT")
+	if !managed {
+		return nil, nil, false
+	}
+	for _, required := range requiredRules {
+		if cemsDecision(lines, required) == "DROP" {
+			covered = append(covered, required)
+		} else {
+			missing = append(missing, required)
+		}
+	}
+	return covered, missing, true
+}
+
+func cemsDecision(lines []string, required portRule) string {
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[0] != "-A" || fields[1] != "CEMS_COMMON_INPUT" {
+			continue
+		}
+		if !ruleMatchesPort(fields, required) {
+			continue
+		}
+		target := optionValue(fields, "-j")
+		if target == "DROP" || target == "REJECT" {
+			return "DROP"
+		}
+		if target == "ACCEPT" {
+			return "ACCEPT"
+		}
+	}
+	return ""
+}
+
+func ruleMatchesPort(fields []string, required portRule) bool {
+	protocol := optionValue(fields, "-p")
+	if protocol != "" && protocol != required.Protocol {
+		return false
+	}
+	if optionValue(fields, "--sport") != "" || optionValue(fields, "--sports") != "" {
+		return false
+	}
+	for _, option := range []string{"-s", "--source", "-i", "--in-interface"} {
+		if optionValue(fields, option) != "" {
+			return false
+		}
+	}
+	ports := optionValue(fields, "--dport")
+	if ports == "" {
+		ports = optionValue(fields, "--dports")
+	}
+	if ports == "" {
+		return true
+	}
+	return portListContains(ports, required.Port)
+}
+
+func optionValue(fields []string, option string) string {
+	for index := 0; index+1 < len(fields); index++ {
+		if fields[index] == option {
+			return strings.Trim(fields[index+1], "\"")
+		}
+	}
+	return ""
+}
+
+func portListContains(value string, port int) bool {
+	for _, part := range strings.Split(value, ",") {
+		bounds := strings.SplitN(part, ":", 2)
+		start, err := strconv.Atoi(bounds[0])
+		if err != nil {
+			continue
+		}
+		end := start
+		if len(bounds) == 2 {
+			end, err = strconv.Atoi(bounds[1])
+			if err != nil {
+				continue
+			}
+		}
+		if port >= start && port <= end {
+			return true
+		}
+	}
+	return false
 }
 
 func BuildPlan(saveOutput string) ([]Command, error) {

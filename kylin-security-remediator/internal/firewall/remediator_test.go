@@ -33,7 +33,7 @@ func (f *fakeIPTables) Run(_ context.Context, args []string) error {
 
 func TestRepairAppliesPlanAndVerifiesResult(t *testing.T) {
 	backend := &fakeIPTables{saveOutputs: []string{
-		"-P INPUT ACCEPT\n-A INPUT -j CEMS_COMMON_INPUT",
+		"-P INPUT ACCEPT",
 		firewall.ExpectedSaveFixture(),
 	}}
 	remediator := firewall.NewRemediator(backend)
@@ -58,7 +58,7 @@ func TestRepairAppliesPlanAndVerifiesResult(t *testing.T) {
 
 func TestRepairRollsBackOnlySuccessfulManagedCommandsOnFailure(t *testing.T) {
 	backend := &fakeIPTables{
-		saveOutputs: []string{"-P INPUT ACCEPT\n-A INPUT -j CEMS_COMMON_INPUT"},
+		saveOutputs: []string{"-P INPUT ACCEPT"},
 		failRun:     true,
 		failAt:      1,
 	}
@@ -85,24 +85,45 @@ func TestRepairRollsBackOnlySuccessfulManagedCommandsOnFailure(t *testing.T) {
 	}
 }
 
-func TestRepairReportsSecurityPolicyOverrideWithoutRepeatedlyFightingIt(t *testing.T) {
-	overridden := "-P INPUT ACCEPT\n-A INPUT -j CEMS_COMMON_INPUT"
-	backend := &fakeIPTables{saveOutputs: []string{overridden, overridden}}
+func TestRepairDefersMissingRulesToCEMSManagementWithoutChangingIPTables(t *testing.T) {
+	cemsRules := strings.Join([]string{
+		"-P INPUT ACCEPT",
+		"-N CEMS_COMMON_INPUT",
+		"-A INPUT -j CEMS_COMMON_INPUT",
+		"-A CEMS_COMMON_INPUT -p tcp --dport 3389 -m conntrack --ctstate NEW,UNTRACKED -j DROP",
+		"-A CEMS_COMMON_INPUT -p tcp --dport 135 -m conntrack --ctstate NEW,UNTRACKED -j DROP",
+		"-A CEMS_COMMON_INPUT -p udp -m multiport --dports 137:139 -m conntrack --ctstate NEW,UNTRACKED -j DROP",
+		"-A CEMS_COMMON_INPUT -p tcp -m multiport --dports 137:139 -m conntrack --ctstate NEW,UNTRACKED -j DROP",
+		"-A CEMS_COMMON_INPUT -p tcp -m multiport --dports 21:23 -m conntrack --ctstate NEW,UNTRACKED -j DROP",
+		"-A CEMS_COMMON_INPUT -p tcp --dport 445 -m conntrack --ctstate NEW,UNTRACKED -j ACCEPT",
+		"-A CEMS_COMMON_INPUT -p tcp -m multiport --dports 135:139 -m conntrack --ctstate NEW,UNTRACKED -j ACCEPT",
+		"-A CEMS_COMMON_INPUT -p udp -m multiport --dports 135:139 -m conntrack --ctstate NEW,UNTRACKED -j ACCEPT",
+		"-A CEMS_COMMON_INPUT -m conntrack --ctstate NEW,UNTRACKED -j ACCEPT",
+	}, "\n")
+	backend := &fakeIPTables{saveOutputs: []string{cemsRules}}
 	remediator := firewall.NewRemediator(backend)
 
 	checks, actions, err := remediator.Evaluate(context.Background(), core.ModeRepair)
 	if err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
-	if len(checks) != 1 || checks[0].Conclusion != core.ConclusionFail || !strings.Contains(checks[0].Actual, "安全策略覆盖") {
+	if len(checks) != 1 || checks[0].Conclusion != core.ConclusionFail || !strings.Contains(checks[0].Actual, "CEMS已覆盖6项，管理端待补4项") {
 		t.Fatalf("checks = %#v", checks)
 	}
-	if len(backend.commands) != 12 {
-		t.Fatalf("commands = %d, want one repair attempt of 12 commands", len(backend.commands))
+	if len(backend.commands) != 0 {
+		t.Fatalf("commands = %#v, want no local firewall changes", backend.commands)
 	}
-	for _, action := range actions {
-		if action.Status != "被安全策略覆盖" {
-			t.Fatalf("action = %#v", action)
+	if len(actions) != 0 {
+		t.Fatalf("actions = %#v, want no local firewall actions", actions)
+	}
+	wantDetails := []string{"TCP 136", "TCP 445", "UDP 136", "UDP 3389"}
+	joinedDetails := ""
+	for _, detail := range checks[0].Details {
+		joinedDetails += detail.Name + "=" + detail.Value + "\n"
+	}
+	for _, want := range wantDetails {
+		if !strings.Contains(joinedDetails, want) {
+			t.Errorf("details missing %q: %s", want, joinedDetails)
 		}
 	}
 }

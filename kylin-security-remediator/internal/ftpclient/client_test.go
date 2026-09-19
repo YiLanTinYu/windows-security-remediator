@@ -103,6 +103,30 @@ func TestUploadFileRetriesTemporaryConnectionFailure(t *testing.T) {
 	}
 }
 
+func TestUploadFileFallsBackWhenStandardServerDoesNotSupportIntegrityExtensions(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	received := make(chan receivedFile, 1)
+	go serveUpload(listener, "test-user", "test-password", received, false)
+	localPath := filepath.Join(t.TempDir(), "verification-report_test.json")
+	if err := os.WriteFile(localPath, []byte("standard ftp contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := ftpclient.New(ftpclient.Config{
+		Address: listener.Addr().String(), Username: "test-user", Password: "test-password", Timeout: 2 * time.Second,
+	})
+	if err := client.UploadFile(context.Background(), localPath, "verification-report_test.json"); err != nil {
+		t.Fatalf("UploadFile() error = %v", err)
+	}
+	result := <-received
+	if result.err != nil || result.data != "standard ftp contents" {
+		t.Fatalf("received = %#v", result)
+	}
+}
+
 func TestUploadStopsWhenServerDoesNotSendWelcomeMessage(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -136,6 +160,10 @@ func TestUploadStopsWhenServerDoesNotSendWelcomeMessage(t *testing.T) {
 }
 
 func serveOneUpload(listener net.Listener, username, password string, received chan<- receivedFile) {
+	serveUpload(listener, username, password, received, true)
+}
+
+func serveUpload(listener net.Listener, username, password string, received chan<- receivedFile, supportMetadata bool) {
 	connection, err := listener.Accept()
 	if err != nil {
 		received <- receivedFile{err: err}
@@ -171,12 +199,20 @@ func serveOneUpload(listener net.Listener, username, password string, received c
 		case "TYPE":
 			writeReply(200, "binary mode")
 		case "ALLO":
+			if !supportMetadata {
+				writeReply(502, "command not implemented")
+				continue
+			}
 			if _, scanErr := fmt.Sscan(argument, &declaredSize); scanErr != nil || declaredSize < 0 {
 				writeReply(501, "invalid size")
 				continue
 			}
 			writeReply(200, "size accepted")
 		case "SITE":
+			if !supportMetadata {
+				writeReply(502, "command not implemented")
+				continue
+			}
 			algorithm, value, found := strings.Cut(argument, " ")
 			if !found || !strings.EqualFold(algorithm, "SHA256") || len(value) != 64 {
 				writeReply(501, "invalid checksum")

@@ -17,6 +17,12 @@ struct ReportFile {
   std::wstring path;
   std::wstring group;
   std::wstring timestamp;
+  bool html = false;
+};
+
+struct ReportBatch {
+  bool html = false;
+  bool json = false;
 };
 
 std::wstring Join(const std::wstring &left, const std::wstring &right) {
@@ -64,11 +70,17 @@ bool ParseReportName(const std::wstring &name, ReportFile &report) {
     return false;
 
   const std::wstring stem = name.substr(0, dot);
-  const std::wstring prefix = L"verification-report_";
-  if (stem.compare(0, prefix.size(), prefix) != 0)
+  const std::wstring windowsPrefix = L"verification-report_";
+  const std::wstring legacyKylinPrefix = L"kylin-report_";
+  size_t prefixLength = 0;
+  if (stem.compare(0, windowsPrefix.size(), windowsPrefix) == 0)
+    prefixLength = windowsPrefix.size();
+  else if (stem.compare(0, legacyKylinPrefix.size(), legacyKylinPrefix) == 0)
+    prefixLength = legacyKylinPrefix.size();
+  else
     return false;
   const size_t separator = stem.find_last_of(L'_');
-  if (separator == std::wstring::npos || separator <= prefix.size())
+  if (separator == std::wstring::npos || separator <= prefixLength)
     return false;
   const std::wstring timestamp = stem.substr(separator + 1);
   if (!ValidTimestamp(timestamp))
@@ -77,6 +89,7 @@ bool ParseReportName(const std::wstring &name, ReportFile &report) {
   report.name = name;
   report.group = stem.substr(0, separator);
   report.timestamp = timestamp;
+  report.html = EqualsNoCase(extension, L"html");
   return true;
 }
 
@@ -152,17 +165,32 @@ int wmain(int argc, wchar_t **argv) {
 
   const std::wstring directory = ExeDirectory();
   std::vector<ReportFile> reports = FindReports(directory);
+  std::map<std::wstring, ReportBatch> batches;
+  for (const auto &report : reports) {
+    auto &batch = batches[report.group + L"|" + report.timestamp];
+    if (report.html)
+      batch.html = true;
+    else
+      batch.json = true;
+  }
   std::map<std::wstring, std::wstring> newest;
   for (const auto &report : reports) {
+    const ReportBatch &batch = batches[report.group + L"|" + report.timestamp];
+    if (!batch.html || !batch.json)
+      continue;
     auto &stamp = newest[report.group];
     if (stamp.empty() || report.timestamp > stamp)
       stamp = report.timestamp;
   }
 
   std::vector<const ReportFile *> kept;
+  std::vector<const ReportFile *> incomplete;
   std::vector<const ReportFile *> obsolete;
   for (const auto &report : reports) {
-    if (report.timestamp == newest[report.group])
+    const ReportBatch &batch = batches[report.group + L"|" + report.timestamp];
+    if (!batch.html || !batch.json)
+      incomplete.push_back(&report);
+    else if (report.timestamp == newest[report.group])
       kept.push_back(&report);
     else
       obsolete.push_back(&report);
@@ -171,16 +199,20 @@ int wmain(int argc, wchar_t **argv) {
     return a->name < b->name;
   };
   std::sort(kept.begin(), kept.end(), byName);
+  std::sort(incomplete.begin(), incomplete.end(), byName);
   std::sort(obsolete.begin(), obsolete.end(), byName);
 
   std::wcout << L"FTP 报告整理工具\n"
              << L"处理目录：" << directory << L"\n"
              << L"识别终端：" << newest.size() << L" 个\n"
              << L"保留文件：" << kept.size() << L" 个\n"
+             << L"保留不完整报告文件：" << incomplete.size() << L" 个\n"
              << L"待删除旧文件：" << obsolete.size() << L" 个\n\n";
   std::wcout << L"【保留的最新报告】\n";
   for (const auto *report : kept)
     std::wcout << L"保留  " << report->name << L"\n";
+  for (const auto *report : incomplete)
+    std::wcout << L"保留（不完整报告）  " << report->name << L"\n";
   std::wcout << L"\n【准备删除的旧报告】\n";
   for (const auto *report : obsolete)
     std::wcout << L"删除  " << report->name << L"\n";
@@ -194,6 +226,8 @@ int wmain(int argc, wchar_t **argv) {
                      std::to_wstring(obsolete.size()) + L" 个\r\n\r\n";
   for (const auto *report : kept)
     log += L"保留：" + report->name + L"\r\n";
+  for (const auto *report : incomplete)
+    log += L"保留（不完整报告，不参与去重）：" + report->name + L"\r\n";
   for (const auto *report : obsolete)
     log += L"待删除：" + report->name + L"\r\n";
 
