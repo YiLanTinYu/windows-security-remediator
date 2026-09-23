@@ -3,6 +3,7 @@
 #include <setupapi.h>
 #include <cfgmgr32.h>
 #include <sqlite3.h>
+#include "ie_credentials.h"
 #include <string>
 #include <vector>
 #include <cstdio>
@@ -54,11 +55,25 @@ int ClearDatabase(const wchar_t* path){
     if(sqlite3_exec(db,"COMMIT",nullptr,nullptr,nullptr)!=SQLITE_OK){sqlite3_exec(db,"ROLLBACK",nullptr,nullptr,nullptr);sqlite3_close(db);return 1;}
     sqlite3_close(db);std::printf("%d\n",removed);return 0;
 }
+int PrintIECleanupResult(const sr::IECredentialCleanupResult& result){
+    if(!result.available){std::fwprintf(stderr,L"%ls\n",result.error.c_str());return 6;}
+    std::printf("%d %d %d\n",result.before,result.removed,result.after);return 0;
+}
+int CountIEWebCredentials(){
+    const sr::IECredentialScan scan=sr::ReadCurrentUserIEWebCredentials();
+    if(!scan.available){std::fwprintf(stderr,L"%ls\n",scan.error.c_str());return 6;}
+    std::printf("%zu\n",scan.credentials.size());return 0;
+}
 int wmain(int argc,wchar_t** argv){
     if(argc==3&&wcscmp(argv[1],L"/remove-usb-history")==0)return RemoveUsbHistory(argv[2],false);
     if(argc==3&&wcscmp(argv[1],L"/probe-usb-history")==0)return RemoveUsbHistory(argv[2],true);
     if(argc==3&&wcscmp(argv[1],L"/clear-chromium")==0)return ClearDatabase(argv[2]);
     if(argc==3&&wcscmp(argv[1],L"/count-chromium-logins")==0)return CountChromiumLogins(argv[2]);
+    if(argc==2&&wcscmp(argv[1],L"/inspect-ie-storage2")==0)return PrintIECleanupResult(sr::CleanCurrentUserLegacyIEStorage(false));
+    if(argc==2&&wcscmp(argv[1],L"/clear-ie-storage2")==0)return PrintIECleanupResult(sr::CleanCurrentUserLegacyIEStorage(true));
+    if(argc==2&&wcscmp(argv[1],L"/inspect-ie-wininet")==0)return PrintIECleanupResult(sr::CleanCurrentUserWinInetCredentials(false));
+    if(argc==2&&wcscmp(argv[1],L"/clear-ie-wininet")==0)return PrintIECleanupResult(sr::CleanCurrentUserWinInetCredentials(true));
+    if(argc==2&&wcscmp(argv[1],L"/count-ie-web-credentials")==0)return CountIEWebCredentials();
     if(argc!=1)return 2;
     wchar_t path[MAX_PATH]{},system[MAX_PATH]{};GetModuleFileNameW(nullptr,path,MAX_PATH);GetSystemDirectoryW(system,MAX_PATH);
     std::wstring exe=path,dir=exe.substr(0,exe.find_last_of(L"\\/")),ps=std::wstring(system)+L"\\WindowsPowerShell\\v1.0\\powershell.exe";

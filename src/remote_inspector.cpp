@@ -18,7 +18,7 @@
 #define SR_SERVER_CERT_SHA256 ""
 #endif
 #ifndef SR_DEFAULT_SERVER
-#define SR_DEFAULT_SERVER L"127.0.0.1:8443"
+#define SR_DEFAULT_SERVER L"192.0.2.10:8443"
 #endif
 
 namespace {

@@ -28,10 +28,10 @@ try {
       'verification-report_192.168.1.21_AA-BB-CC-DD-EE-FF_20260909-090000-000.html',
       'verification-report_192.168.1.21_AA-BB-CC-DD-EE-FF_20260911-090000-000.html',
       'verification-report_192.168.1.21_AA-BB-CC-DD-EE-FF_20260911-090000-000.json',
-      'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-080000-000.html',
-      'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-080000-000.json',
-      'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-090000-000.html',
-      'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-090000-000.json',
+      'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-080000-000.html',
+      'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-080000-000.json',
+      'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-090000-000.html',
+      'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-090000-000.json',
       'verification-report_192.168.1.20_18-3D-2D-C6-47-7B_20260912-120000-000.html',
       'upload-status_192.168.1.20_18-3D-2D-C6-47-7B_20260912-120000-000.json',
       'verification-report_unknown.html',
@@ -62,8 +62,8 @@ try {
   $deleted = @(
     'verification-report_192.168.1.20_18-3D-2D-C6-47-7B_20260910-100000-000.html',
     'verification-report_192.168.1.20_18-3D-2D-C6-47-7B_20260910-100000-000.json',
-    'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-080000-000.html',
-    'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-080000-000.json'
+    'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-080000-000.html',
+    'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-080000-000.json'
   )
   foreach ($name in $deleted) {
     if (Test-Path -LiteralPath (Join-Path $root $name)) { throw "旧报告未删除：$name" }
@@ -75,8 +75,8 @@ try {
     'verification-report_192.168.1.21_AA-BB-CC-DD-EE-FF_20260911-090000-000.html',
     'verification-report_192.168.1.21_AA-BB-CC-DD-EE-FF_20260911-090000-000.json',
     'verification-report_192.168.1.21_AA-BB-CC-DD-EE-FF_20260909-090000-000.html',
-    'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-090000-000.html',
-    'kylin-report_192.168.1.30_02-00-00-00-00-30_20260910-090000-000.json',
+    'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-090000-000.html',
+    'kylin-report_192.0.2.30_02-00-5E-10-00-02_20260910-090000-000.json',
     'verification-report_192.168.1.20_18-3D-2D-C6-47-7B_20260912-120000-000.html',
     'upload-status_192.168.1.20_18-3D-2D-C6-47-7B_20260912-120000-000.json',
     'verification-report_unknown.html',

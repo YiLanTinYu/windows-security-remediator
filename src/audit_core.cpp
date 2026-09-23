@@ -1,5 +1,6 @@
 #define _WIN32_WINNT 0x0601
 #include "audit_core.h"
+#include "ie_credentials.h"
 #include "scan_compatibility.h"
 #include "win7_fs.h"
 #include <windows.h>
@@ -1016,7 +1017,22 @@ void BrowserAudit(AuditResult &r) {
       }
     }
   }
-std::vector<std::pair<std::wstring, std::wstring>> firefoxRoots;
+  const bool ieInstalled =
+      ExistsAny({win7fs::Join(pf, L"Internet Explorer", L"iexplore.exe"),
+                 win7fs::Join(pfx, L"Internet Explorer", L"iexplore.exe")});
+  IECredentialScan ieScan;
+  const bool runningAsSystem = r.executionIdentity == L"SYSTEM";
+  if (ieInstalled && !runningAsSystem)
+    ieScan = ReadCurrentUserIECredentials();
+  const IEAuditContribution ie = EvaluateInternetExplorerAudit(
+      ieInstalled, runningAsSystem, ieScan);
+  table.rows.insert(table.rows.end(), ie.detailRows.begin(), ie.detailRows.end());
+  accounts.rows.insert(accounts.rows.end(), ie.accountRows.begin(),
+                       ie.accountRows.end());
+  pass += ie.passed;
+  fail += ie.failed;
+  review += ie.review;
+ std::vector<std::pair<std::wstring, std::wstring>> firefoxRoots;
 for (const auto &profile : profiles) {
   const std::wstring root = win7fs::Join(profile.second, L"AppData", L"Roaming",
                                          L"Mozilla", L"Firefox", L"Profiles");

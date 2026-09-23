@@ -1,0 +1,67 @@
+终端安全检查与修复工具交付清单
+套件版本：2.0.3
+生成日期：2026-09-19
+作者：倚栏听雨
+版权：Copyright (C) 2026 倚栏听雨. All rights reserved.
+版权与许可：见 COPYRIGHT.txt 和 LICENSE
+
+正式终端程序（Win7 兼容 x86 通用版）
+
+01-现场检查修复版\onsite-check-repair.exe
+  文件版本：2.0.3.0
+  大小：1486336 字节
+  SHA-256：94DD3C7A5975C67C44FCD9D5B3C204391B9471E3095F51DC5A316D88E4F9AD64
+
+02-FTP检查修复回传版\ftp-check-repair.exe
+  文件版本：2.0.3.0
+  大小：1483264 字节
+  SHA-256：6EBD69546360759869EF4311B948295DAB698090C635F30FA35A4AE0006B62F9
+  默认服务器：由私有构建参数注入，公开文档不记录生产地址
+  FTP 凭据：已嵌入成品，未写入文档
+
+03-违规记录清理版\record-cleaner.exe
+  文件版本：2.0.0.0
+  大小：1048576 字节
+  SHA-256：170D629CA7C6556094C60EBF122419F9FBB0A549B9CF03D06040A8FC7FE7362C
+  运行依赖：同目录 cleanup-remediator.ps1、wireless-remediator.ps1
+
+报告管理工具（x64）
+
+04-报告管理工具\ftp-report-pruner-x64.exe
+  文件版本：1.1.0.0
+  大小：398848 字节
+  SHA-256：9B931273E128F572649EA684199C589ECC890C4493EDA7D039A4B4DB7DDB78EA
+
+04-报告管理工具\report-issue-exporter-x64.exe
+  文件版本：1.4.0.0
+  大小：484352 字节
+  SHA-256：0711163F3B2058F7F88FFD6529CF5FFCF84106AD47F8417731EF95346EF995B4
+
+04-报告管理工具\report-person-exporter.exe
+  文件版本：1.4.0.0
+  大小：416768 字节
+  SHA-256：FF485025CA346B8F2C1E7F2EFC1E4F1DB688E8E54E05FA77AEAC397A38E9D00B
+
+自动验证结论
+
+- x86/x64 Release 构建：通过。
+- 现场版与 FTP 版共享检查结果一致性：通过。
+- 修复前、修复后结论状态配色一致性：通过。
+- 报告字段与结果质量：通过。
+- IE Web Credentials、Storage2、WinInet 凭据索引和 SYSTEM 需复核语义：通过。
+- Windows 7 不兼容静态导入检查：通过。
+- USBSTOR 与 USB 来源 SCSI/UASP 检测：通过（需提升权限的注册表隔离测试）。
+- NetBIOS 首次备份捕获：通过（x86/x64 注册表隔离测试）。
+- FTP 扫描接收兼容策略：通过（控制端口、有限被动端口范围、受限来源、配置文件覆盖及 SMB 冲突）。
+- 检测到 FTP 但保护信息不完整时保留原禁用防火墙配置文件，同时继续其他安全修复：通过。
+- Windows、银河麒麟新格式和历史麒麟报告混合去重测试：通过。
+- 跨平台人员匹配、风险映射、三工作表 Excel 汇总和敏感详情排除测试：通过。
+- 损坏 JSON、缺少配对 HTML 和同一终端同时间戳冲突隔离及日志记录：通过。
+
+未完成的外部验收
+
+- Windows 7 SP1、Windows 10、Windows 11 各目标架构真机修复。
+- 正式网管 SYSTEM 推送。
+- 正式 FTP 地址的上传及被动端口连通。
+- 至少一台使用 FTP 扫描回传的真实终端，验证扫描、回传及修复后复测均正常。
+- 从另一台电脑验证目标入站端口不可达且普通出站业务正常。

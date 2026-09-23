@@ -3,9 +3,7 @@
 /build-*/
 /.vs/
 /out/
-/delivery/
 /dist/
-/PROJECT_CONTEXT.md
 /.gocache/
 /.gotmp/
 *.exe
@@ -16,6 +14,12 @@
 *.rar
 CMakeCache.txt
 CMakeFiles/
+
+# Delivery binaries and generated reports
+/delivery/**/kylin-*-amd64
+/delivery/**/kylin-*-arm64
+/delivery/**/reports/
+/delivery/**/cleanup-reports/
 
 # Test and runtime output
 /testlogs/
@@ -38,6 +42,7 @@ backup.state
 backup-v2.state
 
 # Local deployment configuration and secrets
+/PROJECT_CONTEXT.md
 .env
 .env.*
 *.key
@@ -46,11 +51,6 @@ backup-v2.state
 *.p12
 upload.key
 server-cert-sha256.txt
-FTP-Receiver.conf
-Run-FTP.sh
-
-# Stale local delivery archives
-/dist/*.zip
 
 # Local IDE files
 *.user

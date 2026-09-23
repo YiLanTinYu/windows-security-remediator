@@ -12,7 +12,7 @@
 #include <vector>
 
 #ifndef SR_FTP_DEFAULT_SERVER
-#define SR_FTP_DEFAULT_SERVER L"127.0.0.1:12221"
+#define SR_FTP_DEFAULT_SERVER L"192.0.2.10:12221"
 #endif
 #ifndef SR_FTP_USER
 #define SR_FTP_USER L""

@@ -45,7 +45,7 @@ func TestIdentityUsesFallbackAddressAndKeepsPhysicalInterfaceWithoutIPv4(t *test
 	root := fstest.MapFS{
 		"etc/os-release": {Data: []byte("PRETTY_NAME=\"Kylin V10 SP1\"\n")},
 	}
-	mac := net.HardwareAddr{0x02, 0x00, 0x00, 0x00, 0x00, 0x16}
+	mac := net.HardwareAddr{0x02, 0x00, 0x5e, 0x10, 0x00, 0x01}
 	probe := platform.IdentityProbe{
 		Root:          root,
 		Hostname:      func() (string, error) { return "arm-pc", nil },
@@ -67,10 +67,10 @@ func TestIdentityUsesFallbackAddressAndKeepsPhysicalInterfaceWithoutIPv4(t *test
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
 	}
-	if got.IP != "192.0.2.16" || got.MAC != "02-00-00-00-00-16" {
+	if got.IP != "192.0.2.16" || got.MAC != "02-00-5E-10-00-01" {
 		t.Fatalf("identity fallback = %#v", got)
 	}
-	if len(got.Interfaces) != 2 || got.Interfaces[1].Name != "enp1s0" || got.Interfaces[1].MAC != "02-00-00-00-00-16" {
+	if len(got.Interfaces) != 2 || got.Interfaces[1].Name != "enp1s0" || got.Interfaces[1].MAC != "02-00-5E-10-00-01" {
 		t.Fatalf("interfaces = %#v", got.Interfaces)
 	}
 }

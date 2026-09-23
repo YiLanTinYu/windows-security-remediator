@@ -189,7 +189,7 @@ func TestAuditCreatesWindowsCompatibleHTMLAndJSONReports(t *testing.T) {
 	dir := t.TempDir()
 	runner := fixedRunner{result: core.Result{
 		Identity: core.Identity{Hostname: "KYLIN-PC", IP: "192.0.2.20", MAC: "18-3D-2D-C6-47-7B"},
-		Checks:   []core.Check{{Category: "防火墙", Item: "高危端口入站阻断规则", Actual: "仍需1项调整", Conclusion: core.ConclusionFail}},
+		Checks: []core.Check{{Category: "防火墙", Item: "高危端口入站阻断规则", Actual: "仍需1项调整", Conclusion: core.ConclusionFail}},
 	}}
 	now := func() time.Time { return time.Date(2026, 9, 13, 8, 30, 45, 123000000, time.Local) }
 
