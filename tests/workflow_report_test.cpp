@@ -60,10 +60,9 @@ int wmain() {
                               L"远程桌面连接策略", L"Windows 防火墙配置文件",
                               L"NetBIOS 配置汇总"})
     compliant.summary.push_back({item, L"", L"", sr::Verdict::Pass});
-  for (const wchar_t *rule : {L"TCP-22", L"TCP-135", L"TCP-136",
-                              L"UDP-136", L"UDP-137", L"UDP-138",
-                              L"TCP-139", L"TCP-445", L"TCP-3389",
-                              L"UDP-3389"})
+  for (const wchar_t *rule : {L"TCP-22", L"TCP-135", L"UDP-137",
+                              L"UDP-138", L"TCP-139", L"TCP-445",
+                              L"TCP-3389", L"UDP-3389"})
     compliant.summary.push_back(
         {std::wstring(L"防火墙规则 ") + rule, L"", L"", sr::Verdict::Pass});
   compliant.summary.push_back(

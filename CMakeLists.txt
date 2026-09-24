@@ -131,6 +131,12 @@ if(BUILD_TESTING)
   target_include_directories(workflow-report-test PRIVATE src)
   target_link_libraries(workflow-report-test PRIVATE workflow-report)
   add_test(NAME workflow-report COMMAND workflow-report-test)
+  add_test(
+    NAME managed-port-policy
+    COMMAND "${SR_TEST_POWERSHELL}" -NoProfile -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/managed-port-policy.ps1"
+            -SourceRoot "${CMAKE_CURRENT_SOURCE_DIR}"
+  )
 
   add_executable(scan-compatibility-test tests/scan_compatibility_test.cpp)
   target_compile_features(scan-compatibility-test PRIVATE cxx_std_17)

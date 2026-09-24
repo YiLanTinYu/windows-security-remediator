@@ -21,14 +21,17 @@ type portRule struct {
 var requiredRules = []portRule{
 	{Protocol: "tcp", Port: 22},
 	{Protocol: "tcp", Port: 135},
-	{Protocol: "tcp", Port: 136},
-	{Protocol: "udp", Port: 136},
 	{Protocol: "udp", Port: 137},
 	{Protocol: "udp", Port: 138},
 	{Protocol: "tcp", Port: 139},
 	{Protocol: "tcp", Port: 445},
 	{Protocol: "tcp", Port: 3389},
 	{Protocol: "udp", Port: 3389},
+}
+
+var legacyRules = []portRule{
+	{Protocol: "tcp", Port: 136},
+	{Protocol: "udp", Port: 136},
 }
 
 func cemsCoverage(saveOutput string) (covered []portRule, missing []portRule, managed bool) {
@@ -169,7 +172,19 @@ func BuildPlan(saveOutput string) ([]Command, error) {
 			plan = append(plan, Command{Args: ruleArgs("-A", rule), Undo: ruleArgs("-D", rule)})
 		}
 	}
+	plan = append(plan, legacyCleanupPlan(saveOutput)...)
 	return plan, nil
+}
+
+func legacyCleanupPlan(saveOutput string) []Command {
+	lines := normalizedLines(saveOutput)
+	var plan []Command
+	for _, rule := range legacyRules {
+		for count := countManagedRule(lines, rule); count > 0; count-- {
+			plan = append(plan, Command{Args: ruleArgs("-D", rule), Undo: ruleArgs("-A", rule)})
+		}
+	}
+	return plan
 }
 
 func ExpectedSaveFixture() string {

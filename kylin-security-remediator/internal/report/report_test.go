@@ -168,15 +168,15 @@ func TestWriteShowsPerDetailConclusionsForCEMSCoverage(t *testing.T) {
 	result := core.Result{Checks: []core.Check{{
 		Category:   "防火墙",
 		Item:       "高危端口入站阻断规则",
-		Expected:   "10项高危端口均由CEMS通用入站策略阻断",
-		Actual:     "CEMS已覆盖6项，管理端待补4项；本程序未修改本机iptables规则",
+		Expected:   "8项高危端口均由CEMS通用入站策略阻断",
+		Actual:     "CEMS已覆盖6项，管理端待补2项；本程序未修改本机iptables规则",
 		Conclusion: core.ConclusionFail,
 		Details: []core.Detail{
 			{Name: "数据来源", Value: "iptables-save（filter表）"},
 			{Name: "管理方式", Value: "检测到CEMS接管INPUT；仅审计"},
 			{Name: "审计范围", Value: "按CEMS_COMMON_INPUT通用策略判断"},
 			{Name: "CEMS已覆盖", Value: "TCP 22、TCP 135"},
-			{Name: "CEMS管理端待补01", Value: "TCP 136 入站阻断"},
+			{Name: "CEMS管理端待补01", Value: "TCP 445 入站阻断"},
 		},
 	}}}
 	var jsonOut bytes.Buffer
@@ -191,7 +191,7 @@ func TestWriteShowsPerDetailConclusionsForCEMSCoverage(t *testing.T) {
 		`<td>管理方式</td><td>检测到CEMS接管INPUT；仅审计</td><td class="info">信息</td>`,
 		`<td>审计范围</td><td>按CEMS_COMMON_INPUT通用策略判断</td><td class="info">信息</td>`,
 		`<td>CEMS已覆盖</td><td>TCP 22、TCP 135</td><td class="pass">通过</td>`,
-		`<td>CEMS管理端待补01</td><td>TCP 136 入站阻断</td><td class="fail">异常</td>`,
+		`<td>CEMS管理端待补01</td><td>TCP 445 入站阻断</td><td class="fail">异常</td>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("HTML missing per-detail conclusion %q", want)

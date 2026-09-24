@@ -23,8 +23,8 @@ func TestBuildPlanAddsIndependentChainBeforeVendorChains(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
 	}
-	if len(plan) != 12 {
-		t.Fatalf("commands = %d, want 12: %#v", len(plan), plan)
+	if len(plan) != 10 {
+		t.Fatalf("commands = %d, want 10: %#v", len(plan), plan)
 	}
 	if !reflect.DeepEqual(plan[0].Args, []string{"-N", "SEC_REMEDIATOR_INPUT"}) {
 		t.Fatalf("first command = %#v", plan[0].Args)
@@ -51,13 +51,31 @@ func TestBuildPlanIsEmptyWhenManagedRulesAreComplete(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRemovesLegacy136Rules(t *testing.T) {
+	current := firewall.ExpectedSaveFixture() + "\n" + strings.Join([]string{
+		"-A SEC_REMEDIATOR_INPUT -p tcp --dport 136 -m comment --comment SecurityRemediator -j DROP",
+		"-A SEC_REMEDIATOR_INPUT -p udp --dport 136 -m comment --comment SecurityRemediator -j DROP",
+	}, "\n")
+	plan, err := firewall.BuildPlan(current)
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	if len(plan) != 2 {
+		t.Fatalf("plan = %#v, want two legacy deletions", plan)
+	}
+	for _, command := range plan {
+		joined := strings.Join(command.Args, " ")
+		if !strings.HasPrefix(joined, "-D SEC_REMEDIATOR_INPUT ") || !strings.Contains(joined, "--dport 136") {
+			t.Fatalf("unexpected legacy cleanup command: %s", joined)
+		}
+	}
+}
+
 func TestBuildPlanRecognizesRulesAsIPTablesSaveActuallySerializesThem(t *testing.T) {
 	lines := []string{"-P INPUT ACCEPT", "-N " + firewall.Chain, "-A INPUT -j " + firewall.Chain}
 	for _, rule := range []string{
 		"-A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 22 -m comment --comment \"SecurityRemediator\" -j DROP",
 		"-A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 135 -m comment --comment \"SecurityRemediator\" -j DROP",
-		"-A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 136 -m comment --comment \"SecurityRemediator\" -j DROP",
-		"-A SEC_REMEDIATOR_INPUT -p udp -m udp --dport 136 -m comment --comment \"SecurityRemediator\" -j DROP",
 		"-A SEC_REMEDIATOR_INPUT -p udp -m udp --dport 137 -m comment --comment \"SecurityRemediator\" -j DROP",
 		"-A SEC_REMEDIATOR_INPUT -p udp -m udp --dport 138 -m comment --comment \"SecurityRemediator\" -j DROP",
 		"-A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 139 -m comment --comment \"SecurityRemediator\" -j DROP",
@@ -87,8 +105,6 @@ func TestBuildPlanRecognizesNFTablesSaveWithoutQuotedComment(t *testing.T) {
 -A INPUT -j SEC_REMEDIATOR_INPUT
 -A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 22 -m comment --comment SecurityRemediator -j DROP
 -A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 135 -m comment --comment SecurityRemediator -j DROP
--A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 136 -m comment --comment SecurityRemediator -j DROP
--A SEC_REMEDIATOR_INPUT -p udp -m udp --dport 136 -m comment --comment SecurityRemediator -j DROP
 -A SEC_REMEDIATOR_INPUT -p udp -m udp --dport 137 -m comment --comment SecurityRemediator -j DROP
 -A SEC_REMEDIATOR_INPUT -p udp -m udp --dport 138 -m comment --comment SecurityRemediator -j DROP
 -A SEC_REMEDIATOR_INPUT -p tcp -m tcp --dport 139 -m comment --comment SecurityRemediator -j DROP

@@ -417,8 +417,6 @@ void FirewallCheck(AuditResult &r) {
   };
   const Expected expected[] = {{L"TCP-22", NET_FW_IP_PROTOCOL_TCP, L"22"},
                                {L"TCP-135", NET_FW_IP_PROTOCOL_TCP, L"135"},
-                               {L"TCP-136", NET_FW_IP_PROTOCOL_TCP, L"136"},
-                               {L"UDP-136", NET_FW_IP_PROTOCOL_UDP, L"136"},
                                {L"UDP-137", NET_FW_IP_PROTOCOL_UDP, L"137"},
                                {L"UDP-138", NET_FW_IP_PROTOCOL_UDP, L"138"},
                                {L"TCP-139", NET_FW_IP_PROTOCOL_TCP, L"139"},
@@ -563,7 +561,7 @@ void ListenerCheck(AuditResult &r) {
   if (GetExtendedTcpTable(data.data(), &size, FALSE, AF_INET,
                           TCP_TABLE_OWNER_PID_LISTENER, 0) == NO_ERROR) {
     auto *table = reinterpret_cast<MIB_TCPTABLE_OWNER_PID *>(data.data());
-    std::set<int> targets = {22, 135, 136, 139, 445, 3389};
+    std::set<int> targets = {22, 135, 139, 445, 3389};
     for (DWORD i = 0; i < table->dwNumEntries; i++) {
       const auto &row = table->table[i];
       int port = ntohs(static_cast<u_short>(row.dwLocalPort));
@@ -585,7 +583,7 @@ void ListenerCheck(AuditResult &r) {
   if (GetExtendedUdpTable(data.data(), &size, FALSE, AF_INET,
                           UDP_TABLE_OWNER_PID, 0) == NO_ERROR) {
     auto *table = reinterpret_cast<MIB_UDPTABLE_OWNER_PID *>(data.data());
-    std::set<int> targets = {136, 137, 138, 3389};
+    std::set<int> targets = {137, 138, 3389};
     for (DWORD i = 0; i < table->dwNumEntries; i++) {
       const auto &row = table->table[i];
       int port = ntohs(static_cast<u_short>(row.dwLocalPort));

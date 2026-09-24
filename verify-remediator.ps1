@@ -68,7 +68,7 @@ try {$rdp=(Get-ItemProperty -LiteralPath 'Registry::HKEY_LOCAL_MACHINE\SYSTEM\Cu
 W '预期：fDenyTSConnections 为 0x1。'; W ''
 ShowStep '防火墙阻断规则'
 W '[4] 检查防火墙规则'
-$ruleNames=@('TCP-22','TCP-135','TCP-136','UDP-136','UDP-137','UDP-138','TCP-139','TCP-445','TCP-3389','UDP-3389')
+$ruleNames=@('TCP-22','TCP-135','UDP-137','UDP-138','TCP-139','TCP-445','TCP-3389','UDP-3389')
 $firewallPassed=0;$firewallMissing=0;$firewallDuplicateKinds=0;$firewallDuplicateRules=0
 foreach($tag in $ruleNames){
     $name='SecurityRemediator - Block '+$tag

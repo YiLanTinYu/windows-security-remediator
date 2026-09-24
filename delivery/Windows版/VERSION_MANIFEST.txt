@@ -5,25 +5,31 @@
 版权：Copyright (C) 2026 倚栏听雨. All rights reserved.
 版权与许可：见 COPYRIGHT.txt 和 LICENSE
 
-正式终端程序（Win7 兼容 x86 通用版）
+正式终端入口程序（Win7 兼容 x86 通用版；清理版另含 x64 USB 辅助程序）
 
 01-现场检查修复版\onsite-check-repair.exe
   文件版本：2.0.3.0
-  大小：1486336 字节
-  SHA-256：94DD3C7A5975C67C44FCD9D5B3C204391B9471E3095F51DC5A316D88E4F9AD64
+  大小：1482240 字节
+  SHA-256：07F8BE9D162BC06AAD8D7A4B2EC0440EE1479EB2A0464AC750670AA7B122594E
 
 02-FTP检查修复回传版\ftp-check-repair.exe
   文件版本：2.0.3.0
-  大小：1483264 字节
-  SHA-256：6EBD69546360759869EF4311B948295DAB698090C635F30FA35A4AE0006B62F9
+  大小：1479168 字节
+  SHA-256：B0EC174CC4D82646C19AE2D85523BB8302D62072D4D3BFC23E34A5CEF97CF405
   默认服务器：由私有构建参数注入，公开文档不记录生产地址
   FTP 凭据：已嵌入成品，未写入文档
 
 03-违规记录清理版\record-cleaner.exe
-  文件版本：2.0.0.0
-  大小：1048576 字节
-  SHA-256：170D629CA7C6556094C60EBF122419F9FBB0A549B9CF03D06040A8FC7FE7362C
-  运行依赖：同目录 cleanup-remediator.ps1、wireless-remediator.ps1
+  文件版本：2.0.1.0
+  大小：1138176 字节
+  SHA-256：EE746F4960D0CFDBDB5883197576A5368943CF58BC8914BD6B14F06580ABC742
+  运行依赖：同目录 record-cleaner-x64.exe、cleanup-remediator.ps1、wireless-remediator.ps1
+
+03-违规记录清理版\record-cleaner-x64.exe
+  文件版本：2.0.1.0
+  大小：1393152 字节
+  SHA-256：D0B567C20B314BF4E6AC537C5A0350E4A21FE204410FB2D44F54E3C80C0E3F91
+  用途：64 位 Windows USB 设备历史清理辅助程序
 
 报告管理工具（x64）
 
@@ -52,6 +58,7 @@
 - Windows 7 不兼容静态导入检查：通过。
 - USBSTOR 与 USB 来源 SCSI/UASP 检测：通过（需提升权限的注册表隔离测试）。
 - NetBIOS 首次备份捕获：通过（x86/x64 注册表隔离测试）。
+- 8项受控端口策略及旧版TCP/UDP 136规则清理：通过。
 - FTP 扫描接收兼容策略：通过（控制端口、有限被动端口范围、受限来源、配置文件覆盖及 SMB 冲突）。
 - 检测到 FTP 但保护信息不完整时保留原禁用防火墙配置文件，同时继续其他安全修复：通过。
 - Windows、银河麒麟新格式和历史麒麟报告混合去重测试：通过。

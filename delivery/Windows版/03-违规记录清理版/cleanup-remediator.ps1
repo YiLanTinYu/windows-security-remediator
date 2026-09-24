@@ -54,9 +54,11 @@ if((Read-Host '确认上述用户和范围后，输入 yes 继续') -cne 'yes'){
 Row '清理任务' '-' '-' '-' '执行中' '若任务中断，请以现场复检结果为准'
 SaveReport
 $rows.Clear()
+$usbCleaner=$CleanerPath
 if([Environment]::Is64BitOperatingSystem){
-    $nativeCleaner=Join-Path $base '记录清理-64位.exe'
-    if(Test-Path -LiteralPath $nativeCleaner){$CleanerPath=$nativeCleaner}
+    $nativeCleaner=Join-Path $base 'record-cleaner-x64.exe'
+    if(Test-Path -LiteralPath $nativeCleaner){$CleanerPath=$nativeCleaner;$usbCleaner=$nativeCleaner}
+    else{$usbCleaner=$null}
 }
 $inspector=$CleanerPath
 foreach($browser in @(@('Edge','msedge','Microsoft\Edge\User Data'),@('Chrome','chrome','Google\Chrome\User Data'))){
@@ -126,12 +128,13 @@ try{
 Row '360 / 世界之窗及其他未适配浏览器' '?' 0 '?' '需人工处理' '请在各浏览器密码管理中清空；不表示已全部清空'
 $usb='Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Enum\USBSTOR'
 try{
-    if(!(Test-Path -LiteralPath $usb)){Row 'USBSTOR' 0 0 0 '未发现' '无历史记录'}
+    if(!$usbCleaner){Row 'USBSTOR' '?' 0 '?' '失败/需复核' '64 位 Windows 缺少 record-cleaner-x64.exe，为避免 WOW64 设备管理失败，未执行 USB 清理'}
+    elseif(!(Test-Path -LiteralPath $usb)){Row 'USBSTOR' 0 0 0 '未发现' '无历史记录'}
     else{foreach($device in (Get-ChildItem -LiteralPath $usb)){foreach($instance in (Get-ChildItem -LiteralPath $device.PSPath)){
         $item="USBSTOR / $($device.PSChildName) / $($instance.PSChildName)";$after='?'
         try{
             $id="USBSTOR\$($device.PSChildName)\$($instance.PSChildName)"
-            & $CleanerPath /remove-usb-history $id|Out-Null;$code=$LASTEXITCODE
+            & $usbCleaner /remove-usb-history $id|Out-Null;$code=$LASTEXITCODE
             try{$null=Get-Item -LiteralPath $instance.PSPath -ErrorAction Stop;$after=1}catch [System.Management.Automation.ItemNotFoundException]{$after=0}
             if($code -eq 170){Row $item 1 0 $after '跳过' '设备仍连接，请安全拔出后重试'}
             elseif($code -eq 3010){Row $item 1 $(if($after -eq 0){1}else{0}) $after '待重启复核' 'Windows 要求稍后重启，本程序不自动重启'}

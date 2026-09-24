@@ -394,8 +394,8 @@ RemediationResult ApplySystemRemediation() {
       scanCompatibility.preserveDisabledFirewallProfiles);
   AddAction(result, {L"Windows 防火墙",
                      scanCompatibility.preserveDisabledFirewallProfiles
-                         ? L"保留原本关闭的配置文件并维护10条入站阻断规则"
-                         : L"启用全部配置文件并维护10条入站阻断规则",
+                         ? L"保留原本关闭的配置文件并维护8条入站阻断规则"
+                         : L"启用全部配置文件并维护8条入站阻断规则",
                      firewall.detail, firewall.success, firewall.changed});
   AddAction(result, ServiceAction(L"LanmanServer", L"Server 文件共享服务"));
   AddAction(result, ServiceAction(L"TermService", L"远程桌面服务"));

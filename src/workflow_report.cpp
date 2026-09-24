@@ -175,6 +175,6 @@ bool RemediationScopeCompliant(const AuditResult &result) {
     else if (row.item.rfind(L"防火墙规则 ", 0) == 0 && pass) ++firewallRules;
   }
   return server && terminal && rdp && (profiles || ftpProfilesPreserved) &&
-         netbios && firewallRules == 10;
+         netbios && firewallRules == 8;
 }
 }

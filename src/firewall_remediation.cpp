@@ -16,18 +16,21 @@ struct RuleSpec {
 const RuleSpec kRules[] = {
     {22, NET_FW_IP_PROTOCOL_TCP, L"TCP-22"},
     {135, NET_FW_IP_PROTOCOL_TCP, L"TCP-135"},
-    {136, NET_FW_IP_PROTOCOL_TCP, L"TCP-136"},
-    {136, NET_FW_IP_PROTOCOL_UDP, L"UDP-136"},
     {137, NET_FW_IP_PROTOCOL_UDP, L"UDP-137"},
     {138, NET_FW_IP_PROTOCOL_UDP, L"UDP-138"},
     {139, NET_FW_IP_PROTOCOL_TCP, L"TCP-139"},
     {445, NET_FW_IP_PROTOCOL_TCP, L"TCP-445"},
     {3389, NET_FW_IP_PROTOCOL_TCP, L"TCP-3389"},
     {3389, NET_FW_IP_PROTOCOL_UDP, L"UDP-3389"}};
+const wchar_t *kLegacyRuleNames[] = {
+    L"SecurityRemediator - Block TCP-136",
+    L"SecurityRemediator - Block UDP-136"};
 
 bool IsManagedRuleName(const std::wstring &name) {
   for (const RuleSpec &spec : kRules)
     if (name == std::wstring(kRulePrefix) + spec.tag) return true;
+  for (const wchar_t *legacy : kLegacyRuleNames)
+    if (name == legacy) return true;
   return false;
 }
 
@@ -141,10 +144,13 @@ bool Configure(INetFwRule *rule, const std::wstring &name,
   return ok;
 }
 
-bool RemoveAll(INetFwRules *rules, const std::wstring &name) {
+bool RemoveAll(INetFwRules *rules, const std::wstring &name,
+               bool *changed = nullptr) {
   DWORD count = 0;
   if (!FindRules(rules, name, count, nullptr))
     return false;
+  if (changed && count > 0)
+    *changed = true;
   while (count > 0) {
     BSTR ruleName = SysAllocString(name.c_str());
     if (!ruleName)
@@ -335,6 +341,8 @@ FirewallRepairResult RepairFirewallRules(bool preserveDisabledProfiles) {
   if (FAILED(policy->get_Rules(&rules)) || !rules) {
     ok = false;
   } else {
+    for (const wchar_t *legacy : kLegacyRuleNames)
+      if (!RemoveAll(rules, legacy, &result.changed)) ok = false;
     for (const RuleSpec &rule : kRules)
       if (!EnsureRule(rules, rule, allProfiles, result.changed))
         ok = false;
@@ -345,7 +353,7 @@ FirewallRepairResult RepairFirewallRules(bool preserveDisabledProfiles) {
     CoUninitialize();
   result.success = ok;
   result.detail = ok ? (result.profilesPreserved
-                            ? L"FTP接收证据不完整；保留原本关闭的防火墙配置文件，未开放未知端口，10条入站阻断规则已维护"
+                            ? L"FTP接收证据不完整；保留原本关闭的防火墙配置文件，未开放未知端口，8条入站阻断规则已维护"
                             : result.changed ? L"防火墙规则已修复并复检"
                                              : L"防火墙规则已符合要求")
                      : L"至少一项防火墙规则修复失败";
@@ -407,6 +415,8 @@ bool RestoreFirewallState(const FirewallState &state, std::wstring &detail) {
         const std::wstring name = std::wstring(kRulePrefix) + spec.tag;
         if (!RemoveAll(rules, name)) ok = false;
       }
+      for (const wchar_t *legacy : kLegacyRuleNames)
+        if (!RemoveAll(rules, legacy)) ok = false;
       for (const auto &rule : state.rules)
         if (!AddStateRule(rules, rule)) ok = false;
       rules->Release();

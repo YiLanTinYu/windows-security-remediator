@@ -42,10 +42,10 @@ func TestRepairAppliesPlanAndVerifiesResult(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
-	if len(backend.commands) != 12 {
-		t.Fatalf("executed commands = %d, want 12", len(backend.commands))
+	if len(backend.commands) != 10 {
+		t.Fatalf("executed commands = %d, want 10", len(backend.commands))
 	}
-	if len(actions) != 12 || len(checks) != 1 || checks[0].Conclusion != core.ConclusionPass {
+	if len(actions) != 10 || len(checks) != 1 || checks[0].Conclusion != core.ConclusionPass {
 		t.Fatalf("checks=%#v actions=%#v", checks, actions)
 	}
 	for _, command := range backend.commands {
@@ -107,7 +107,7 @@ func TestRepairDefersMissingRulesToCEMSManagementWithoutChangingIPTables(t *test
 	if err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
-	if len(checks) != 1 || checks[0].Conclusion != core.ConclusionFail || !strings.Contains(checks[0].Actual, "CEMS已覆盖6项，管理端待补4项") {
+	if len(checks) != 1 || checks[0].Conclusion != core.ConclusionFail || !strings.Contains(checks[0].Actual, "CEMS已覆盖6项，管理端待补2项") {
 		t.Fatalf("checks = %#v", checks)
 	}
 	if len(backend.commands) != 0 {
@@ -116,7 +116,7 @@ func TestRepairDefersMissingRulesToCEMSManagementWithoutChangingIPTables(t *test
 	if len(actions) != 0 {
 		t.Fatalf("actions = %#v, want no local firewall actions", actions)
 	}
-	wantDetails := []string{"TCP 136", "TCP 445", "UDP 136", "UDP 3389"}
+	wantDetails := []string{"TCP 445", "UDP 3389"}
 	joinedDetails := ""
 	for _, detail := range checks[0].Details {
 		joinedDetails += detail.Name + "=" + detail.Value + "\n"
@@ -124,6 +124,35 @@ func TestRepairDefersMissingRulesToCEMSManagementWithoutChangingIPTables(t *test
 	for _, want := range wantDetails {
 		if !strings.Contains(joinedDetails, want) {
 			t.Errorf("details missing %q: %s", want, joinedDetails)
+		}
+	}
+}
+
+func TestRepairRemovesOnlyOwnLegacy136RulesInCEMSEnvironment(t *testing.T) {
+	cemsBase := strings.Join([]string{
+		"-P INPUT ACCEPT",
+		"-N CEMS_COMMON_INPUT",
+		"-N SEC_REMEDIATOR_INPUT",
+		"-A INPUT -j CEMS_COMMON_INPUT",
+		"-A SEC_REMEDIATOR_INPUT -p tcp --dport 136 -m comment --comment SecurityRemediator -j DROP",
+		"-A SEC_REMEDIATOR_INPUT -p udp --dport 136 -m comment --comment SecurityRemediator -j DROP",
+	}, "\n")
+	backend := &fakeIPTables{saveOutputs: []string{cemsBase, strings.ReplaceAll(strings.ReplaceAll(cemsBase,
+		"-A SEC_REMEDIATOR_INPUT -p tcp --dport 136 -m comment --comment SecurityRemediator -j DROP\n", ""),
+		"-A SEC_REMEDIATOR_INPUT -p udp --dport 136 -m comment --comment SecurityRemediator -j DROP", "")}}
+	remediator := firewall.NewRemediator(backend)
+
+	_, actions, err := remediator.Evaluate(context.Background(), core.ModeRepair)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if len(backend.commands) != 2 || len(actions) != 2 {
+		t.Fatalf("commands=%#v actions=%#v", backend.commands, actions)
+	}
+	for _, command := range backend.commands {
+		joined := strings.Join(command, " ")
+		if strings.Contains(joined, "CEMS_COMMON_INPUT") || !strings.Contains(joined, "-D SEC_REMEDIATOR_INPUT") || !strings.Contains(joined, "--dport 136") {
+			t.Fatalf("unexpected command: %s", joined)
 		}
 	}
 }

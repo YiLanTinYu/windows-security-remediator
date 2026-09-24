@@ -72,7 +72,8 @@ bool SetSvc(const wchar_t* name,DWORD start,bool run){SC_HANDLE scm=OpenSCManage
 
 struct ComInit { HRESULT hr; ComInit():hr(CoInitializeEx(nullptr,COINIT_MULTITHREADED)){} ~ComInit(){if(SUCCEEDED(hr))CoUninitialize();} };
 struct FirewallRuleSpec { int port; long protocol; const wchar_t* tag; };
-const FirewallRuleSpec kFirewallRules[]={{22,NET_FW_IP_PROTOCOL_TCP,L"TCP-22"},{135,NET_FW_IP_PROTOCOL_TCP,L"TCP-135"},{136,NET_FW_IP_PROTOCOL_TCP,L"TCP-136"},{136,NET_FW_IP_PROTOCOL_UDP,L"UDP-136"},{137,NET_FW_IP_PROTOCOL_UDP,L"UDP-137"},{138,NET_FW_IP_PROTOCOL_UDP,L"UDP-138"},{139,NET_FW_IP_PROTOCOL_TCP,L"TCP-139"},{445,NET_FW_IP_PROTOCOL_TCP,L"TCP-445"},{3389,NET_FW_IP_PROTOCOL_TCP,L"TCP-3389"},{3389,NET_FW_IP_PROTOCOL_UDP,L"UDP-3389"}};
+const FirewallRuleSpec kFirewallRules[]={{22,NET_FW_IP_PROTOCOL_TCP,L"TCP-22"},{135,NET_FW_IP_PROTOCOL_TCP,L"TCP-135"},{137,NET_FW_IP_PROTOCOL_UDP,L"UDP-137"},{138,NET_FW_IP_PROTOCOL_UDP,L"UDP-138"},{139,NET_FW_IP_PROTOCOL_TCP,L"TCP-139"},{445,NET_FW_IP_PROTOCOL_TCP,L"TCP-445"},{3389,NET_FW_IP_PROTOCOL_TCP,L"TCP-3389"},{3389,NET_FW_IP_PROTOCOL_UDP,L"UDP-3389"}};
+const wchar_t* kLegacyFirewallRuleNames[]={L"SecurityRemediator - Block TCP-136",L"SecurityRemediator - Block UDP-136"};
 
 bool FindNamedRules(INetFwRules* rules,const std::wstring& name,DWORD& count,INetFwRule** first){
   count=0; if(first)*first=nullptr; IUnknown* unknown=nullptr;
@@ -118,8 +119,8 @@ bool EnsureRule(INetFwRules* rules,const FirewallRuleSpec& spec,long profiles){
   bool ok=ConfigureRule(rule,name,spec,profiles)&&SUCCEEDED(rules->Add(rule));rule->Release();if(!ok)return false;DWORD finalCount=0;return FindNamedRules(rules,name,finalCount,nullptr)&&finalCount==1;
 }
 bool Firewall(bool apply){ ComInit ci; if(FAILED(ci.hr)&&ci.hr!=RPC_E_CHANGED_MODE)return false; INetFwPolicy2*p=nullptr; HRESULT hr=CoCreateInstance(__uuidof(NetFwPolicy2),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),(void**)&p); if(FAILED(hr))return false; long profiles=NET_FW_PROFILE2_DOMAIN|NET_FW_PROFILE2_PRIVATE|NET_FW_PROFILE2_PUBLIC; bool ok=true; if(!apply){p->Release();return true;} VARIANT_BOOL en=VARIANT_TRUE; for(NET_FW_PROFILE_TYPE2 bit: {(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_DOMAIN,(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_PRIVATE,(NET_FW_PROFILE_TYPE2)NET_FW_PROFILE2_PUBLIC}) if(FAILED(p->put_FirewallEnabled(bit,en)))ok=false;
-  INetFwRules*rs=nullptr;if(SUCCEEDED(p->get_Rules(&rs))&&rs){for(const auto& rule:kFirewallRules)if(!EnsureRule(rs,rule,profiles))ok=false;rs->Release();}else ok=false;p->Release();return ok; }
-bool RemoveRules(){ComInit ci;INetFwPolicy2*p=nullptr;if(FAILED(CoCreateInstance(__uuidof(NetFwPolicy2),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),(void**)&p)))return false;INetFwRules*rs=nullptr;bool ok=SUCCEEDED(p->get_Rules(&rs))&&rs;if(ok){for(const auto& rule:kFirewallRules){std::wstring name=kRulePrefix;name+=rule.tag;if(!RemoveAllNamedRules(rs,name))ok=false;}rs->Release();}p->Release();return ok;}
+  INetFwRules*rs=nullptr;if(SUCCEEDED(p->get_Rules(&rs))&&rs){for(const auto& name:kLegacyFirewallRuleNames)if(!RemoveAllNamedRules(rs,name))ok=false;for(const auto& rule:kFirewallRules)if(!EnsureRule(rs,rule,profiles))ok=false;rs->Release();}else ok=false;p->Release();return ok; }
+bool RemoveRules(){ComInit ci;INetFwPolicy2*p=nullptr;if(FAILED(CoCreateInstance(__uuidof(NetFwPolicy2),nullptr,CLSCTX_INPROC_SERVER,__uuidof(INetFwPolicy2),(void**)&p)))return false;INetFwRules*rs=nullptr;bool ok=SUCCEEDED(p->get_Rules(&rs))&&rs;if(ok){for(const auto& name:kLegacyFirewallRuleNames)if(!RemoveAllNamedRules(rs,name))ok=false;for(const auto& rule:kFirewallRules){std::wstring name=kRulePrefix;name+=rule.tag;if(!RemoveAllNamedRules(rs,name))ok=false;}rs->Release();}p->Release();return ok;}
 
 std::wstring StateFile(){wchar_t p[MAX_PATH];SHGetFolderPathW(nullptr,CSIDL_COMMON_APPDATA,nullptr,SHGFP_TYPE_CURRENT,p);std::wstring d=Join(p,kProduct);CreateDirectoryW(d.c_str(),nullptr);return Join(d,L"backup.state");}
 bool StateNumber(const std::wstring& value){return !value.empty()&&std::all_of(value.begin(),value.end(),[](wchar_t c){return c>=L'0'&&c<=L'9';});}

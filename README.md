@@ -6,7 +6,7 @@
 
 ## 一、工具用途
 
-本套工具用于 Windows 终端的安全检查、系统配置修复、违规记录清理以及集中报告整理。正式终端程序采用兼容 Windows 7 SP1 的 32 位静态构建，可在 Windows 7、Windows 10 的 32/64 位系统及 Windows 11 64 位系统运行。这样网管推送时不需要预先判断系统位数，也不会因为同时推送 32 位和 64 位版本而重复检查。
+本套工具用于 Windows 终端的安全检查、系统配置修复、违规记录清理以及集中报告整理。正式终端入口程序采用兼容 Windows 7 SP1 的 32 位静态构建，可在 Windows 7、Windows 10 的 32/64 位系统及 Windows 11 64 位系统运行。这样网管推送时不需要预先判断系统位数，也不会因为同时推送 32 位和 64 位版本而重复检查。违规记录清理版另带一个由入口自动调用的 x64 辅助程序，专用于 64 位 Windows 的 USB 设备历史清理。
 
 主要工作流程：
 
@@ -33,6 +33,7 @@
 
 03-违规记录清理版
   record-cleaner.exe
+  record-cleaner-x64.exe
   cleanup-remediator.ps1
   wireless-remediator.ps1
   README.txt
@@ -43,7 +44,7 @@
   README.txt
 ```
 
-除“违规记录清理版”明确列出的脚本外，其余终端程序均为单个 EXE。清理版三个文件必须放在同一目录。
+除“违规记录清理版”明确列出的脚本外，其余终端程序均为单个 EXE。清理版四个文件必须放在同一目录。
 
 ## 三、建议操作顺序
 
@@ -107,7 +108,7 @@ FTP 上传最多尝试三次。运行结束后查看同目录的 `upload-status.
 现场版和 FTP 版只修复以下系统配置：
 
 - 默认启用域、专用、公用三个 Windows 防火墙配置文件。若识别到正在运行的 FTP 接收服务，但控制端口、有限被动端口范围、允许来源或规则覆盖不完整，则保留原本关闭的配置文件并标记“需复核”，不开放未知端口。
-- 维护 10 条入站阻断规则，各保留一条：TCP 22、135、136、139、445、3389；UDP 136、137、138、3389。
+- 维护 8 条入站阻断规则，各保留一条：TCP 22、135、139、445、3389；UDP 137、138、3389；修复时会删除本程序旧版本遗留的 TCP/UDP 136 规则。
 - 停止并禁用 `LanmanServer`（Server 文件共享服务）。
 - 停止并禁用 `TermService`（远程桌面服务）。
 - 设置 `fDenyTSConnections=1`，拒绝远程桌面连接。
@@ -133,7 +134,7 @@ FTP 上传最多尝试三次。运行结束后查看同目录的 `upload-status.
 
 ## 八、违规记录清理版
 
-目录内必须同时保留 `record-cleaner.exe`、`cleanup-remediator.ps1` 和 `wireless-remediator.ps1`。
+目录内必须同时保留 `record-cleaner.exe`、`record-cleaner-x64.exe`、`cleanup-remediator.ps1` 和 `wireless-remediator.ps1`。`record-cleaner.exe` 是通用入口；64 位 Windows 会自动调用 x64 辅助程序清理 USB 历史，避免 WOW64 设备管理限制。
 
 由待清理数据所属的当前用户右键 `record-cleaner.exe`，选择“以管理员身份运行”，阅读范围后输入小写 `yes`。不要以 SYSTEM 身份运行。
 
