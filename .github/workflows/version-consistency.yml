@@ -1,0 +1,35 @@
+name: Version consistency
+
+on:
+  push:
+    paths:
+      - VERSION
+      - README.md
+      - CMakeLists.txt
+      - cmake/version.h.in
+      - delivery/Windows版/VERSION_MANIFEST.txt
+      - src/*.rc
+      - tools/check-version.cmake
+      - .github/workflows/version-consistency.yml
+  pull_request:
+    paths:
+      - VERSION
+      - README.md
+      - CMakeLists.txt
+      - cmake/version.h.in
+      - delivery/Windows版/VERSION_MANIFEST.txt
+      - src/*.rc
+      - tools/check-version.cmake
+      - .github/workflows/version-consistency.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check version metadata
+        run: cmake -P tools/check-version.cmake

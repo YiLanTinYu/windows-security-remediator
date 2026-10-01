@@ -1,11 +1,12 @@
 #pragma code_page(65001)
 #include <windows.h>
+#include "version.h"
 
 1 ICON "remediator.ico"
 
 1 VERSIONINFO
- FILEVERSION 1,3,3,0
- PRODUCTVERSION 1,3,3,0
+ FILEVERSION SR_REMOTE_INSPECTOR_VERSION_COMMA
+ PRODUCTVERSION SR_REMOTE_INSPECTOR_VERSION_COMMA
  FILEFLAGSMASK 0x3fL
  FILEOS 0x40004L
  FILETYPE 0x1L
@@ -14,12 +15,12 @@ BEGIN
     BLOCK "080404b0" BEGIN
       VALUE "CompanyName", "倚栏听雨\0"
       VALUE "FileDescription", "终端安全静默检查与报告回传工具\0"
-      VALUE "FileVersion", "1.3.3.0\0"
+      VALUE "FileVersion", SR_REMOTE_INSPECTOR_VERSION_STRING
       VALUE "InternalName", "SecurityRemoteInspector\0"
       VALUE "LegalCopyright", "Copyright (C) 2026 倚栏听雨\0"
       VALUE "OriginalFilename", "终端安全静默检查.exe\0"
       VALUE "ProductName", "终端安全检查与报告系统\0"
-      VALUE "ProductVersion", "1.3.3.0\0"
+      VALUE "ProductVersion", SR_REMOTE_INSPECTOR_VERSION_STRING
     END
   END
   BLOCK "VarFileInfo" BEGIN

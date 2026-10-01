@@ -3,7 +3,9 @@
 #include <shellapi.h>
 #include <sqlite3.h>
 #include "audit_core.h"
+#include "execution_lock.h"
 #include "system_remediation.h"
+#include "version.h"
 #include "workflow_report.h"
 #include <cstdio>
 #include <iostream>
@@ -55,9 +57,15 @@ int wmain(int argc,wchar_t** argv){
     if(argc==3&&_wcsicmp(argv[1],L"/list-chromium-logins")==0)return ListChromiumLogins(argv[2]);
     const bool auditOnly=HasArg(argc,argv,L"/audit-only");
     const bool rollback=HasArg(argc,argv,L"/rollback");
+    sr::ExecutionLock executionLock;
+    if(!executionLock.acquired()){
+      if(executionLock.alreadyRunning())Print(L"已有一个检查修复任务正在运行，本次不重复执行。\r\n");
+      else Print(L"无法建立全局执行锁，Win32 错误："+std::to_wstring(executionLock.error())+L"\r\n");
+      return 8;
+    }
     SetConsoleTitleW(L"终端安全现场检查修复工具");
     Print(L"============================================================\r\n");
-    Print(L"  终端安全现场检查修复工具 2.0.2\r\n");
+    Print(std::wstring(L"  终端安全现场检查修复工具 ")+SR_ONSITE_INSPECTOR_VERSION_WIDE+L"\r\n");
     Print(L"  作者：倚栏听雨\r\n");
     Print(L"============================================================\r\n");
     Print(L"本程序先检查；只有输入小写 yes 后才修复系统安全配置。\r\n");

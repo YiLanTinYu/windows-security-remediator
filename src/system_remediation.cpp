@@ -3,6 +3,8 @@
 #include "firewall_remediation.h"
 #include "scan_compatibility.h"
 #include <windows.h>
+#include <aclapi.h>
+#include <sddl.h>
 #include <shlobj.h>
 #include <winsvc.h>
 #include <fstream>
@@ -14,6 +16,10 @@ namespace {
 const wchar_t *kNetbiosRoot =
     L"SYSTEM\\CurrentControlSet\\Services\\NetBT\\Parameters\\Interfaces";
 const wchar_t *kRdpPath = L"SYSTEM\\CurrentControlSet\\Control\\Terminal Server";
+const wchar_t *kRestrictedFileSddl =
+    L"D:P(A;;FA;;;SY)(A;;FA;;;BA)";
+const wchar_t *kRestrictedDirectorySddl =
+    L"D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
 
 struct ServiceState {
   std::wstring name;
@@ -33,14 +39,72 @@ std::wstring Join(const std::wstring &left, const std::wstring &right) {
   return left + (left.empty() || left.back() == L'\\' ? L"" : L"\\") + right;
 }
 
+bool ApplyRestrictedDacl(const std::wstring &path, const wchar_t *sddl) {
+  PSECURITY_DESCRIPTOR descriptor = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          sddl, SDDL_REVISION_1, &descriptor, nullptr))
+    return false;
+  PACL dacl = nullptr;
+  BOOL present = FALSE, defaulted = FALSE;
+  const bool read = GetSecurityDescriptorDacl(
+      descriptor, &present, &dacl, &defaulted) && present;
+  const DWORD result = read
+      ? SetNamedSecurityInfoW(
+            const_cast<LPWSTR>(path.c_str()), SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, dacl, nullptr)
+      : ERROR_INVALID_SECURITY_DESCR;
+  LocalFree(descriptor);
+  return result == ERROR_SUCCESS;
+}
+
+bool EnsureRestrictedDirectory(const std::wstring &directory) {
+  DWORD attributes = GetFileAttributesW(directory.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES) {
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            kRestrictedDirectorySddl, SDDL_REVISION_1, &descriptor, nullptr))
+      return false;
+    SECURITY_ATTRIBUTES security{};
+    security.nLength = sizeof(security);
+    security.lpSecurityDescriptor = descriptor;
+    const bool created = CreateDirectoryW(directory.c_str(), &security) ||
+                         GetLastError() == ERROR_ALREADY_EXISTS;
+    LocalFree(descriptor);
+    if (!created) return false;
+    attributes = GetFileAttributesW(directory.c_str());
+  }
+  return attributes != INVALID_FILE_ATTRIBUTES &&
+         (attributes & FILE_ATTRIBUTE_DIRECTORY) &&
+         ApplyRestrictedDacl(directory, kRestrictedDirectorySddl);
+}
+
+bool BuildRestrictedSecurityAttributes(SECURITY_ATTRIBUTES &attributes,
+                                       PSECURITY_DESCRIPTOR &descriptor) {
+  descriptor = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+          kRestrictedFileSddl, SDDL_REVISION_1, &descriptor, nullptr))
+    return false;
+  attributes = {};
+  attributes.nLength = sizeof(attributes);
+  attributes.lpSecurityDescriptor = descriptor;
+  attributes.bInheritHandle = FALSE;
+  return true;
+}
+
 std::wstring BackupPath() {
   wchar_t common[MAX_PATH]{};
   if (FAILED(SHGetFolderPathW(nullptr, CSIDL_COMMON_APPDATA, nullptr,
                              SHGFP_TYPE_CURRENT, common)))
     return L"";
   const std::wstring directory = Join(common, L"SecurityRemediator");
-  SHCreateDirectoryExW(nullptr, directory.c_str(), nullptr);
-  return Join(directory, L"backup-v2.state");
+  if (!EnsureRestrictedDirectory(directory)) return L"";
+  const std::wstring path = Join(directory, L"backup-v2.state");
+  const DWORD attributes = GetFileAttributesW(path.c_str());
+  if (attributes != INVALID_FILE_ATTRIBUTES &&
+      !ApplyRestrictedDacl(path, kRestrictedFileSddl))
+    return L"";
+  return path;
 }
 
 std::wstring Hex(const std::wstring &value) {
@@ -225,8 +289,7 @@ bool Capture(BackupState &state, std::wstring &detail) {
 bool Save(const BackupState &state) {
   const std::wstring path = BackupPath();
   if (path.empty()) return false;
-  std::wofstream output(path.c_str(), std::ios::trunc);
-  if (!output) return false;
+  std::wostringstream output;
   output << L"VERSION|2\n";
   output << L"SVC|" << state.server.name << L'|' << state.server.startType << L'|'
          << state.server.running << L"\n";
@@ -243,7 +306,57 @@ bool Save(const BackupState &state) {
            << Hex(rule.localPorts) << L'|' << rule.protocol << L'|' << rule.direction
            << L'|' << rule.action << L'|' << rule.profiles << L'|' << rule.enabled << L"\n";
   output << L"END|1\n";
-  return static_cast<bool>(output);
+  if (!output) return false;
+
+  const std::wstring wide = output.str();
+  const int byteCount = WideCharToMultiByte(
+      CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(), static_cast<int>(wide.size()),
+      nullptr, 0, nullptr, nullptr);
+  if (byteCount <= 0) return false;
+  std::vector<char> bytes(static_cast<size_t>(byteCount));
+  if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide.data(),
+                          static_cast<int>(wide.size()), bytes.data(), byteCount,
+                          nullptr, nullptr) != byteCount)
+    return false;
+
+  SECURITY_ATTRIBUTES security{};
+  PSECURITY_DESCRIPTOR descriptor = nullptr;
+  if (!BuildRestrictedSecurityAttributes(security, descriptor)) return false;
+  std::wstring temporary;
+  HANDLE file = INVALID_HANDLE_VALUE;
+  for (unsigned int attempt = 0; attempt < 8; ++attempt) {
+    temporary = path + L"." + std::to_wstring(GetCurrentProcessId()) + L"." +
+                std::to_wstring(GetTickCount()) + L"." +
+                std::to_wstring(attempt) + L".tmp";
+    file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, &security,
+                       CREATE_NEW, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH,
+                       nullptr);
+    if (file != INVALID_HANDLE_VALUE || GetLastError() != ERROR_FILE_EXISTS)
+      break;
+  }
+  LocalFree(descriptor);
+  if (file == INVALID_HANDLE_VALUE) return false;
+
+  size_t offset = 0;
+  bool written = true;
+  while (offset < bytes.size()) {
+    const DWORD chunk = static_cast<DWORD>(
+        (bytes.size() - offset) > MAXDWORD ? MAXDWORD : bytes.size() - offset);
+    DWORD completed = 0;
+    if (!WriteFile(file, bytes.data() + offset, chunk, &completed, nullptr) ||
+        completed == 0) {
+      written = false;
+      break;
+    }
+    offset += completed;
+  }
+  if (written) written = FlushFileBuffers(file) != FALSE;
+  if (!CloseHandle(file)) written = false;
+  if (written)
+    written = MoveFileExW(temporary.c_str(), path.c_str(),
+                          MOVEFILE_WRITE_THROUGH) != FALSE;
+  if (!written) DeleteFileW(temporary.c_str());
+  return written;
 }
 
 std::vector<std::wstring> Split(const std::wstring &line) {

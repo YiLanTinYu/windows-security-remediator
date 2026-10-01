@@ -1,5 +1,6 @@
 #define _WIN32_WINNT 0x0601
 #include "audit_core.h"
+#include "execution_lock.h"
 #include "system_remediation.h"
 #include "workflow_report.h"
 #include "win7_fs.h"
@@ -186,6 +187,17 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   if ((!localOnly && (!ParseServer(serverValue, server) || !*SR_FTP_USER ||
       !*SR_FTP_PASSWORD)))
     return 2;
+  sr::ExecutionLock executionLock;
+  if (!executionLock.acquired()) {
+    const std::wstring reason = executionLock.alreadyRunning()
+        ? L"another-instance-running"
+        : L"execution-lock-failed";
+    WriteStatus(ExeDir(),
+                L"{\"uploaded\":false,\"transport\":\"FTP\",\"reason\":" +
+                    JsonQuote(reason) + L",\"win32\":" +
+                    std::to_wstring(executionLock.error()) + L"}");
+    return 8;
+  }
   try {
     const sr::AuditResult before = sr::RunAudit();
     sr::RemediationResult remediation;
