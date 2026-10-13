@@ -32,6 +32,8 @@ sudo sh ./Run-Audit.sh
 
 脚本自动申请 `sudo` 权限，只检查并把 HTML/JSON 写入同目录的 `reports`，不修改系统。退出码非零时先查看终端输出和报告，不要只凭窗口闪退判断。
 
+若从 Windows 复制后出现 `set: Illegal option -`，说明脚本可能被改成 CRLF 换行。在麒麟终端执行 `sed -i 's/\r$//' ./Run-Audit.sh`，再执行 `sudo sh ./Run-Audit.sh`。直接运行 `sudo ./Run-Audit.sh` 还需要执行权限；使用 `sudo sh` 则不需要。
+
 ## 3. 一键检查修复
 
 需要：

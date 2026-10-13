@@ -98,7 +98,14 @@ func (r *Remediator) Evaluate(ctx context.Context, mode core.Mode) ([]core.Check
 		actions = append(actions, core.Action{Kind: "wireless-profile", Target: profile.Name, Status: "当前连接，未清理"})
 	}
 	radioChanged := false
-	if len(activeWireless) == 0 && state.RadioEnabled {
+	hasWireless := false
+	for _, device := range state.Devices {
+		if device.Kind == KindWireless {
+			hasWireless = true
+			break
+		}
+	}
+	if hasWireless && len(activeWireless) == 0 && state.RadioEnabled {
 		if radioErr := r.backend.SetRadio(ctx, false); radioErr != nil {
 			rollbackErr := r.rollback(ctx, backups)
 			markRolledBack(actions)
@@ -208,6 +215,7 @@ func wirelessDeviceCheck(state State, names []string) core.Check {
 		Details: []core.Detail{{Name: "数据来源", Value: "NetworkManager设备状态"}, {Name: "无线射频", Value: enabledText(state.RadioEnabled)}},
 	}
 	if len(names) == 0 {
+		check.Details = append(check.Details, core.Detail{Name: "处理说明", Value: "未执行：未发现无线网卡"})
 		return check
 	}
 	check.Actual = fmt.Sprintf("无线功能启用=%t；网卡：%s", state.RadioEnabled, strings.Join(names, "、"))

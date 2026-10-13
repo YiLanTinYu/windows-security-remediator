@@ -346,11 +346,20 @@ func scanChromiumDatabase(ctx context.Context, home Home, source string) Profile
 		result.Issue = err.Error()
 		return result
 	}
-	if !columns["origin_url"] || !columns["username_value"] || !columns["password_value"] {
+	siteColumn := "origin_url"
+	if !columns[siteColumn] {
+		for _, candidate := range []string{"action_url", "signon_realm"} {
+			if columns[candidate] {
+				siteColumn = candidate
+				break
+			}
+		}
+	}
+	if !columns[siteColumn] || !columns["username_value"] || !columns["password_value"] {
 		result.Issue = "登录数据库结构不受支持"
 		return result
 	}
-	query := "SELECT origin_url, username_value FROM logins WHERE length(password_value) > 0"
+	query := "SELECT COALESCE(" + siteColumn + ", ''), COALESCE(username_value, '') FROM logins WHERE length(password_value) > 0"
 	if columns["blacklisted_by_user"] {
 		query += " AND COALESCE(blacklisted_by_user, 0) = 0"
 	} else if columns["blocked_by_user"] {

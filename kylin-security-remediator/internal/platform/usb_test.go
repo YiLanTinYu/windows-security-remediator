@@ -183,6 +183,20 @@ func TestUSBProbeFindsUSBStorageInUdevDatabase(t *testing.T) {
 	}
 }
 
+func TestUSBProbeReadsDeviceNameFromUdevNodeRecord(t *testing.T) {
+	probe := platform.USBProbe{Root: fstest.MapFS{
+		"run/udev/data/b8:0": {Data: []byte("N:sda\nE:DEVTYPE=disk\nE:ID_BUS=usb\n")},
+	}, Journal: func(context.Context) ([]byte, error) { return nil, nil }}
+	results, err := probe.Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	udev := sourceByName(t, results, "当前设备（udev）")
+	if udev.Status != usb.StatusFound || len(udev.Records) != 1 || udev.Records[0].Detail != "/dev/sda" {
+		t.Fatalf("udev = %#v", udev)
+	}
+}
+
 func TestUSBProbeFindsMountedDeviceOnlyWhenUdevIdentifiesItAsUSBStorage(t *testing.T) {
 	probe := platform.USBProbe{
 		Root: fstest.MapFS{

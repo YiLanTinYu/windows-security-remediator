@@ -281,6 +281,31 @@ func TestChromiumAuditIdentifiesNonSQLiteBrowserDatabaseWithoutRawDriverError(t 
 	}
 }
 
+func TestChromiumAuditReadsAlternateSiteColumn(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, ".config", "sgsbrowser", "Default", "Login Data")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TABLE logins (action_url TEXT, username_value TEXT, password_value BLOB); INSERT INTO logins VALUES ('https://example.test/login','user',x'0102')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	checks, _, err := browser.NewAuditor(browser.NewScanner([]browser.Home{{User: "test", Path: home}})).Evaluate(context.Background(), core.ModeAudit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checks[0].Conclusion != core.ConclusionFail || !strings.Contains(checks[0].Actual, "example.test") {
+		t.Fatalf("checks = %#v", checks)
+	}
+}
+
 func TestFirefoxAuditReportsSiteButNeverEncryptedCredentialMaterial(t *testing.T) {
 	home := t.TempDir()
 	profile := filepath.Join(home, ".mozilla", "firefox", "abcd.default-release")

@@ -1,0 +1,3 @@
+delivery/银河麒麟版/客户端/*.sh text eol=lf
+delivery/银河麒麟版/客户端/*.md text eol=lf
+delivery/银河麒麟版/客户端/*.txt text eol=lf

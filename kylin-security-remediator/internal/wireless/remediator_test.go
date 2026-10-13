@@ -18,6 +18,21 @@ type fakeBackend struct {
 	failDelete   string
 }
 
+func TestRepairWithoutWirelessHardwareDoesNotChangeRadio(t *testing.T) {
+	state := wireless.State{RadioEnabled: true}
+	backend := &fakeBackend{states: []wireless.State{state, state}}
+	checks, actions, err := wireless.NewRemediator(backend).Evaluate(context.Background(), core.ModeRepair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.radioChanges) != 0 || len(actions) != 0 {
+		t.Fatalf("unexpected repair: radio=%v actions=%v", backend.radioChanges, actions)
+	}
+	if checks[0].Conclusion != core.ConclusionNA {
+		t.Fatalf("check = %#v", checks[0])
+	}
+}
+
 func (f *fakeBackend) Backup(_ context.Context, profile wireless.Profile) (wireless.Backup, error) {
 	f.backedUp = append(f.backedUp, profile.UUID)
 	return wireless.Backup{Profile: profile}, nil

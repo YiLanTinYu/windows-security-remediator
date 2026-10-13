@@ -32,11 +32,11 @@ func NewUSBProbe() USBProbe {
 func (p USBProbe) Scan(ctx context.Context) ([]usb.SourceResult, error) {
 	sysfs := p.scanSysfs()
 	blocks := p.scanSysfsBlockDevices()
-	udev := p.scanUdev()
+	udev := p.scanUdev(blocks)
 	return []usb.SourceResult{sysfs, blocks, udev, p.scanMountInfo(udev, blocks), p.scanGVFS(ctx), p.scanJournal(ctx), p.scanUserRecentFiles()}, nil
 }
 
-func (p USBProbe) scanUdev() usb.SourceResult {
+func (p USBProbe) scanUdev(blocks usb.SourceResult) usb.SourceResult {
 	result := usb.SourceResult{Name: "当前设备（udev）", Status: usb.StatusNone, Detail: "udev数据库中未发现当前USB存储设备"}
 	entries, err := fs.ReadDir(p.Root, "run/udev/data")
 	if err != nil {
@@ -79,7 +79,49 @@ func (p USBProbe) scanUdev() usb.SourceResult {
 		result.Status = usb.StatusFound
 		result.Detail = ""
 	}
+	if blocks.Status == usb.StatusFound {
+		seenPaths := make(map[string]bool)
+		for _, record := range result.Records {
+			seenPaths[record.Detail] = true
+		}
+		for _, block := range blocks.Records {
+			if block.Locator == "" || seenPaths[block.Detail] {
+				continue
+			}
+			data, readErr := fs.ReadFile(p.Root, "run/udev/data/b"+block.Locator)
+			if readErr != nil {
+				result.Status = sourceErrorStatus(readErr)
+				result.Detail = "已发现USB块设备，但对应udev属性不可读取"
+				return result
+			}
+			properties, parseErr := parseUdevProperties(data)
+			if parseErr != nil {
+				result.Status = usb.StatusParseFailed
+				result.Detail = "已发现USB块设备，但对应udev属性解析失败"
+				return result
+			}
+			matched, matchErr := matchUdevBlock(block, properties)
+			if matchErr != nil {
+				result.Status = usb.StatusParseFailed
+				result.Detail = matchErr.Error()
+				return result
+			}
+			result.Records = append(result.Records, matched)
+			result.Status = usb.StatusFound
+			result.Detail = ""
+		}
+	}
 	return result
+}
+
+func matchUdevBlock(block usb.Record, properties map[string]string) (usb.Record, error) {
+	if properties["ID_BUS"] != "usb" {
+		return usb.Record{}, errors.New("udev总线类型与sysfs USB设备不一致")
+	}
+	if name := properties["DEVNAME"]; name != "" && name != block.Detail {
+		return usb.Record{}, errors.New("udev设备节点与sysfs不一致")
+	}
+	return usb.Record{Vendor: properties["ID_VENDOR"], Product: properties["ID_MODEL"], Serial: properties["ID_SERIAL_SHORT"], Detail: block.Detail, Locator: block.Locator}, nil
 }
 
 func (p USBProbe) scanMountInfo(udev, blocks usb.SourceResult) usb.SourceResult {
@@ -215,6 +257,12 @@ func unescapeMountInfo(value string) string {
 func parseUdevProperties(data []byte) (map[string]string, error) {
 	properties := make(map[string]string)
 	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(line, "N:") && properties["DEVNAME"] == "" {
+			name := strings.TrimPrefix(line, "N:")
+			if name != "" && !strings.Contains(name, "..") {
+				properties["DEVNAME"] = "/dev/" + strings.TrimPrefix(name, "/dev/")
+			}
+		}
 		if !strings.HasPrefix(line, "E:") {
 			continue
 		}

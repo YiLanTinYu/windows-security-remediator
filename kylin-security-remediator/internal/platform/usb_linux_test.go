@@ -111,8 +111,43 @@ func TestUSBProbeFindsMountedUSBBlockDeviceWithoutUdevProperties(t *testing.T) {
 	if blocks.Status != usb.StatusFound || len(blocks.Records) != 1 || blocks.Records[0].Detail != "/dev/sdb" {
 		t.Fatalf("block result = %#v", blocks)
 	}
+	udev := sourceByName(t, results, "当前设备（udev）")
+	if udev.Status == usb.StatusNone {
+		t.Fatalf("udev must not report no device when sysfs found one: %#v", udev)
+	}
 	mounts := sourceByName(t, results, "当前挂载（mountinfo）")
 	if mounts.Status != usb.StatusFound || len(mounts.Records) != 1 || mounts.Records[0].Detail != "/dev/sdb → /media/USB" {
 		t.Fatalf("mount result = %#v", mounts)
+	}
+}
+
+func TestUSBProbeMatchesUdevWithoutDeviceNameUsingSysfsNumber(t *testing.T) {
+	root := t.TempDir()
+	device := filepath.Join(root, "sys", "devices", "usb1", "1-1")
+	interfacePath := filepath.Join(device, "1-1:1.0")
+	block := filepath.Join(interfacePath, "block", "sdb")
+	for _, dir := range []string{block, filepath.Join(root, "sys", "bus", "usb", "devices"), filepath.Join(root, "sys", "class", "block"), filepath.Join(root, "run", "udev", "data"), filepath.Join(root, "proc", "self")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, value := range map[string]string{filepath.Join(interfacePath, "bInterfaceClass"): "08\n", filepath.Join(block, "dev"): "8:16\n", filepath.Join(root, "run", "udev", "data", "b8:16"): "E:ID_BUS=usb\n", filepath.Join(root, "proc", "self", "mountinfo"): ""} {
+		if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("../../../devices/usb1/1-1/1-1:1.0", filepath.Join(root, "sys", "bus", "usb", "devices", "1-1:1.0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../devices/usb1/1-1/1-1:1.0/block/sdb", filepath.Join(root, "sys", "class", "block", "sdb")); err != nil {
+		t.Fatal(err)
+	}
+	results, err := (platform.USBProbe{Root: os.DirFS(root), RootPath: root, Journal: func(context.Context) ([]byte, error) { return nil, nil }}).Scan(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	udev := sourceByName(t, results, "当前设备（udev）")
+	if udev.Status != usb.StatusFound || len(udev.Records) != 1 || udev.Records[0].Detail != "/dev/sdb" {
+		t.Fatalf("udev = %#v", udev)
 	}
 }
